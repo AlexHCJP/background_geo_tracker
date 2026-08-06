@@ -1,0 +1,44 @@
+name: attractor_geo
+description: >-
+  Continuous background route tracking for iOS and Android. Points are
+  collected, queued and uploaded by native code, so a session outlives the app
+  being backgrounded, evicted or rebooted.
+version: 0.2.0
+
+homepage: https://github.com/AlexHCJP/attractor_geo
+repository: https://github.com/AlexHCJP/attractor_geo
+issue_tracker: https://github.com/AlexHCJP/attractor_geo/issues
+documentation: https://github.com/AlexHCJP/attractor_geo/README.md#readme
+
+topics:
+  - geolocation
+  - location
+  - gps
+  - tracking
+  - background
+
+environment:
+  sdk: ^3.12.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    # Both platforms are implemented natively and neither is a stub, so pub.dev
+    # infers the platform badges from this block. No `platforms:` key above:
+    # for a plugin it is derived from here, and stating it twice invites the
+    # two to disagree.
+    platforms:
+      android:
+        package: school.attractor.attractor_geo
+        pluginClass: AttractorGeoPlugin
+      ios:
+        pluginClass: AttractorGeoPlugin

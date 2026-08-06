@@ -1,0 +1,60 @@
+# What `dart pub publish` leaves out of the archive.
+#
+# This file *replaces* the package-root `.gitignore` for publishing — it does
+# not add to it. Everything that `.gitignore` held back at this level has to be
+# restated here or it ships: `ios/attractor_geo/.build` alone is ~73 MB of
+# Swift Package Manager output, and only the root `.gitignore` covers it.
+#
+# `example/` is kept on purpose. pub.dev renders it as the package's example
+# tab, and `test/`, `android/src/test/` and `example/ios/RunnerTests/` are kept
+# because the README documents how to run them.
+
+# Build output. `.build/` and `.swiftpm/` are SPM's; `build/` catches both the
+# plugin's and the example app's.
+build/
+.build/
+.swiftpm/
+.dart_tool/
+.gradle/
+.cxx/
+DerivedData/
+Pods/
+.symlinks/
+xcuserdata/
+coverage/
+doc/api/
+
+# Generated at build time from the local toolchain — stale the moment someone
+# else builds, and misleading in between.
+.flutter-plugins
+.flutter-plugins-dependencies
+GeneratedPluginRegistrant.*
+Generated.xcconfig
+flutter_export_environment.sh
+
+# Absolute paths to whichever machine last built this. Never publishable.
+local.properties
+
+# A library resolves against the consumer's constraints, not ours.
+# https://dart.dev/tools/pub/private-files
+/pubspec.lock
+
+# Flutter's own bookkeeping about the template this was created from.
+.metadata
+
+# Signing material. Not present today; excluded so that a future example app
+# with a release config cannot leak one by accident.
+key.properties
+*.keystore
+*.jks
+
+# Editors and OS noise.
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+.DS_Store
+.history/
+*.swp
+*.log
