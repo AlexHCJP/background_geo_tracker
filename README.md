@@ -1,4 +1,4 @@
-# attractor_geo
+# background_geo_tracker
 
 Native continuous route tracking with backend upload. iOS and Android.
 
@@ -20,8 +20,7 @@ backgrounded or evicted from memory, and resumes by itself afterwards.
 
 ```yaml
 dependencies:
-  attractor_geo:
-    path: packages/attractor_geo
+  background_geo_tracker: ^0.2.0
 ```
 
 Platform floors, both enforced by the package:
@@ -31,10 +30,10 @@ Platform floors, both enforced by the package:
 | iOS | 13.0 |
 | Android | `minSdk` 24 |
 
-In this repo the app does not talk to the package directly — it goes through
-`lib/core/dependencies/geo/geo_tracking_service.dart`, which owns the backend
-URL and the auth headers and has a mock for development without GPS. New code
-should use that service, not `AttractorGeoController`.
+`BackgroundGeoTracker` is the whole Dart API. Worth wrapping it in a service
+of your own that owns the backend URL and the auth headers, so the rest of the
+app never has to hold a token to start a track — and so there is somewhere to
+put a mock for working on screens without a GPS fix.
 
 ---
 
@@ -191,7 +190,7 @@ starting. Requesting background up front is presented by iOS as "allow once",
 with no way to upgrade later.
 
 ```dart
-final geo = AttractorGeoController.standard();
+final geo = BackgroundGeoTracker.standard();
 
 // 1. Foreground. Call again to escalate to background.
 await geo.requestPermission();
@@ -238,8 +237,9 @@ been shown the location prompt. That is knowledge about the device, not about
 whoever was signed in; clearing it would make a permanently denied permission
 look re-askable and the UI would offer a dialog the OS refuses to show.
 
-In this repo `GeoAutoSession` calls this on sign-out — host code should not
-need to.
+Nothing in the package knows what a sign-out is, so nothing calls this for you.
+Wire it into whatever tears a session down, next to clearing your own tokens —
+the one place that already knows the account is going away.
 
 ### Watching a session
 
@@ -284,9 +284,9 @@ if (status.authFailed) {
 }
 ```
 
-`NativeGeoTrackingService` in this repo does this for you — it re-configures on
-every `start()`, so a rotated token is picked up without the caller thinking
-about it.
+Cheapest way not to have to think about this: call `configure` on every
+`start()` rather than once at boot. A token rotated while the app was closed is
+then picked up without anyone having to notice `authFailed` at all.
 
 ### When permission is permanently denied
 
@@ -417,16 +417,16 @@ formality you can fill in at the last minute.
 ## Testing
 
 ```bash
-# Dart
-cd packages/attractor_geo && fvm flutter test
+# Dart — from the package root
+flutter test
 
 # Android
-cd packages/attractor_geo/example/android
+cd example/android
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-  ./gradlew :attractor_geo:testDebugUnitTest
+  ./gradlew :background_geo_tracker:testDebugUnitTest
 
 # iOS (boots a simulator)
-cd packages/attractor_geo/example/ios
+cd example/ios
 flutter build ios --simulator --config-only   # once, to generate the xcconfig
 xcrun simctl list devices available           # pick a UDID from the list
 xcodebuild test -workspace Runner.xcworkspace -scheme Runner \

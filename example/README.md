@@ -1,6 +1,6 @@
-# attractor_geo_example
+# background_geo_tracker_example
 
-Demonstrates how to use the attractor_geo plugin.
+Demonstrates how to use the background_geo_tracker plugin.
 
 ## Getting Started
 

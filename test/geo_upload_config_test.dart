@@ -1,4 +1,4 @@
-import 'package:attractor_geo/attractor_geo.dart';
+import 'package:background_geo_tracker/background_geo_tracker.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

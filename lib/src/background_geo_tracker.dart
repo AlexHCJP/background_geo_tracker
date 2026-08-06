@@ -1,8 +1,8 @@
-import 'package:attractor_geo/src/geo_channel.dart';
-import 'package:attractor_geo/src/geo_permission.dart';
-import 'package:attractor_geo/src/geo_point.dart';
-import 'package:attractor_geo/src/geo_tracking_status.dart';
-import 'package:attractor_geo/src/geo_upload_config.dart';
+import 'package:background_geo_tracker/src/geo_channel.dart';
+import 'package:background_geo_tracker/src/geo_permission.dart';
+import 'package:background_geo_tracker/src/geo_point.dart';
+import 'package:background_geo_tracker/src/geo_tracking_status.dart';
+import 'package:background_geo_tracker/src/geo_upload_config.dart';
 import 'package:flutter/services.dart';
 
 /// The Dart side of the tracker: configure it, start and stop sessions, and
@@ -11,8 +11,10 @@ import 'package:flutter/services.dart';
 /// Collection and upload happen entirely in native code, so everything here
 /// keeps working while this isolate is dead. The two streams exist only to
 /// drive UI while the app is open.
-class AttractorGeoController {
-  AttractorGeoController({
+class BackgroundGeoTracker {
+  /// Takes its three channels, so a test can drive the tracker without a
+  /// platform under it. App code wants [BackgroundGeoTracker.standard].
+  BackgroundGeoTracker({
     required MethodChannel methodChannel,
     required EventChannel pointsChannel,
     required EventChannel statusChannel,
@@ -20,7 +22,8 @@ class AttractorGeoController {
        _points = pointsChannel,
        _status = statusChannel;
 
-  factory AttractorGeoController.standard() => AttractorGeoController(
+  /// Wired to the channels the native implementations actually listen on.
+  factory BackgroundGeoTracker.standard() => BackgroundGeoTracker(
     methodChannel: geoMethodChannel,
     pointsChannel: geoPointsChannel,
     statusChannel: geoStatusChannel,
@@ -58,6 +61,8 @@ class AttractorGeoController {
   /// queue is worth keeping, while this throws data away.
   Future<void> reset() => _methods.invokeMethod<void>('reset');
 
+  /// The current state, read once. [statusChanges] is what follows it; this is
+  /// for the first paint, before anything has had a chance to change.
   Future<GeoTrackingStatus> status() async {
     final map = await _methods.invokeMapMethod<Object?, Object?>('status');
     return GeoTrackingStatus.fromMap(map!);
@@ -71,6 +76,8 @@ class AttractorGeoController {
     return geoPermissionFromName(name!);
   }
 
+  /// Opens this app's page in the system settings. The only way out of
+  /// [GeoPermission.permanentlyDenied], where no prompt can be shown any more.
   Future<void> openSystemSettings() =>
       _methods.invokeMethod<void>('openSystemSettings');
 
@@ -85,6 +92,11 @@ class AttractorGeoController {
     (event) => GeoPoint.fromMap(event as Map<Object?, Object?>),
   );
 
+  /// Every transition the native layer reports: a session started or ended, a
+  /// permission dialog answered, permission revoked mid-session, a credential
+  /// the backend refused.
+  ///
+  /// Built once and reused, for the same reason as [points].
   late final Stream<GeoTrackingStatus> statusChanges = _status
       .receiveBroadcastStream()
       .map(

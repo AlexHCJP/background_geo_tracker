@@ -1,9 +1,9 @@
 #
 # To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html.
-# Run `pod lib lint attractor_geo.podspec` to validate before publishing.
+# Run `pod lib lint background_geo_tracker.podspec` to validate before publishing.
 #
 Pod::Spec.new do |s|
-  s.name             = 'attractor_geo'
+  s.name             = 'background_geo_tracker'
   s.version          = '0.2.0'
   s.summary          = 'Native continuous geolocation tracking with upload.'
   s.description      = <<-DESC
@@ -14,7 +14,7 @@ on a live Dart isolate.
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Attractor School' => 'dev@attractor.school' }
   s.source           = { :path => '.' }
-  s.source_files = 'attractor_geo/Sources/attractor_geo/**/*'
+  s.source_files = 'background_geo_tracker/Sources/background_geo_tracker/**/*'
   s.dependency 'Flutter'
   s.platform = :ios, '13.0'
   s.library = 'sqlite3'
@@ -26,5 +26,5 @@ on a live Dart isolate.
   # Required, not optional: this plugin collects precise location and reads
   # UserDefaults, which is a required-reason API. Apple rejects submissions
   # where an SDK touching those has no privacy manifest.
-  s.resource_bundles = {'attractor_geo_privacy' => ['attractor_geo/Sources/attractor_geo/PrivacyInfo.xcprivacy']}
+  s.resource_bundles = {'background_geo_tracker_privacy' => ['background_geo_tracker/Sources/background_geo_tracker/PrivacyInfo.xcprivacy']}
 end

@@ -9,7 +9,7 @@
 // Neither test needs a location permission — both stay on the read-only and
 // configuration paths, so they can run unattended.
 
-import 'package:attractor_geo/attractor_geo.dart';
+import 'package:background_geo_tracker/background_geo_tracker.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -17,7 +17,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('status round-trips through the native plugin', (tester) async {
-    final geo = AttractorGeoController.standard();
+    final geo = BackgroundGeoTracker.standard();
 
     final status = await geo.status();
 
@@ -30,7 +30,7 @@ void main() {
   });
 
   testWidgets('configure is accepted by the native layer', (tester) async {
-    final geo = AttractorGeoController.standard();
+    final geo = BackgroundGeoTracker.standard();
 
     await geo.configure(
       GeoUploadConfig.standard(

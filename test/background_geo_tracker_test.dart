@@ -1,4 +1,4 @@
-import 'package:attractor_geo/attractor_geo.dart';
+import 'package:background_geo_tracker/background_geo_tracker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,7 +11,7 @@ void main() {
 
   late List<MethodCall> calls;
 
-  AttractorGeoController controller() => AttractorGeoController(
+  BackgroundGeoTracker controller() => BackgroundGeoTracker(
     methodChannel: methodChannel,
     pointsChannel: pointsChannel,
     statusChannel: statusChannel,

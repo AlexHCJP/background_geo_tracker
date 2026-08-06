@@ -3,6 +3,9 @@
 /// Decoding only — the native layer builds the upload payload itself, so this
 /// type never has to serialise back to the wire format.
 class GeoPoint {
+  /// Every field is required, the nullable ones included: "the platform had
+  /// nothing to report" is a fact about the fix, and forgetting to pass it
+  /// must not look the same as recording it.
   const GeoPoint({
     required this.id,
     required this.latitude,
@@ -16,6 +19,8 @@ class GeoPoint {
     required this.batteryLevel,
   });
 
+  /// Decodes one event off the points channel. The keys are the snake_case
+  /// ones the native side sends, which are also the wire format's.
   factory GeoPoint.fromMap(Map<Object?, Object?> map) => GeoPoint(
     id: map['id']! as String,
     latitude: _double(map['lat'])!,
@@ -35,6 +40,8 @@ class GeoPoint {
 
   /// Degrees, WGS 84.
   final double latitude;
+
+  /// Degrees, WGS 84.
   final double longitude;
 
   /// Horizontal accuracy in metres.

@@ -94,7 +94,7 @@ final class PointStore {
         // silently — this is the one statement whose failure loses data.
         guard sqlite3_step(statement) == SQLITE_DONE else {
             NSLog(
-                "attractor_geo: failed to queue point %@: %s",
+                "background_geo_tracker: failed to queue point %@: %s",
                 row.id,
                 sqlite3_errmsg(db)
             )

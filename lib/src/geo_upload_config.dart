@@ -3,6 +3,8 @@
 /// The package knows nothing about any particular backend — the URL, the
 /// headers and the batching policy all arrive from the app.
 class GeoUploadConfig {
+  /// Every knob stated outright, for an app that has a reason to disagree with
+  /// the defaults. [GeoUploadConfig.standard] is the one to reach for first.
   const GeoUploadConfig({
     required this.baseUrl,
     required this.path,
@@ -39,7 +41,12 @@ class GeoUploadConfig {
     notificationBody: notificationBody,
   );
 
+  /// Origin the batches are posted to, with no trailing slash — for example
+  /// `https://api.example.com`.
   final String baseUrl;
+
+  /// Appended to [baseUrl] to form the endpoint, for example `/geo/v1/points`.
+  /// The native uploader POSTs a JSON array of points there.
   final String path;
 
   /// Sent with every upload. Stored natively in encrypted storage, so the
@@ -65,16 +72,25 @@ class GeoUploadConfig {
   /// wait for the fallback drain.
   final int uploadIntervalSeconds;
 
-  /// Queue ceilings. Oldest points are evicted first, so a long offline
+  /// Ceiling on queued points. Oldest are evicted first, so a long offline
   /// stretch cannot grow the database without bound.
   final int queueMaxPoints;
+
+  /// Age ceiling, applied alongside [queueMaxPoints]. A point older than this
+  /// is dropped even when there is room left for it — a week-old position is
+  /// not worth uploading.
   final int queueMaxAgeDays;
 
-  /// Copy for the Android foreground-service notification, which the OS
+  /// Title of the Android foreground-service notification, which the OS
   /// requires to be visible for the whole session.
   final String notificationTitle;
+
+  /// Body line under [notificationTitle]. iOS shows no notification of its
+  /// own, so both are Android-only.
   final String notificationBody;
 
+  /// The form the method channel carries to the native side. snake_case
+  /// because Kotlin and Swift read these keys by name.
   Map<String, Object?> toMap() => <String, Object?>{
     'base_url': baseUrl,
     'path': path,

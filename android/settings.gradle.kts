@@ -1,1 +1,1 @@
-rootProject.name = "attractor_geo"
+rootProject.name = "background_geo_tracker"

@@ -1,4 +1,4 @@
-import 'package:attractor_geo/attractor_geo.dart';
+import 'package:background_geo_tracker/background_geo_tracker.dart';
 import 'package:flutter/material.dart';
 
 /// Replace with any endpoint that captures request bodies — the real one does
@@ -24,7 +24,7 @@ class HarnessScreen extends StatefulWidget {
 }
 
 class _HarnessScreenState extends State<HarnessScreen> {
-  final AttractorGeoController _geo = AttractorGeoController.standard();
+  final BackgroundGeoTracker _geo = BackgroundGeoTracker.standard();
   final List<GeoPoint> _points = <GeoPoint>[];
   GeoTrackingStatus? _status;
 
@@ -63,7 +63,7 @@ class _HarnessScreenState extends State<HarnessScreen> {
   Widget build(BuildContext context) {
     final status = _status;
     return Scaffold(
-      appBar: AppBar(title: const Text('attractor_geo harness')),
+      appBar: AppBar(title: const Text('background_geo_tracker harness')),
       body: Column(
         children: <Widget>[
           Wrap(

@@ -4,19 +4,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "attractor_geo",
+    name: "background_geo_tracker",
     platforms: [
         .iOS("13.0")
     ],
     products: [
-        .library(name: "attractor-geo", targets: ["attractor_geo"])
+        .library(name: "background-geo-tracker", targets: ["background_geo_tracker"])
     ],
     dependencies: [
         .package(name: "FlutterFramework", path: "../FlutterFramework")
     ],
     targets: [
         .target(
-            name: "attractor_geo",
+            name: "background_geo_tracker",
             dependencies: [
                 .product(name: "FlutterFramework", package: "FlutterFramework")
             ],

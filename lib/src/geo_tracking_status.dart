@@ -1,8 +1,10 @@
-import 'package:attractor_geo/src/geo_permission.dart';
+import 'package:background_geo_tracker/src/geo_permission.dart';
 
 /// Everything a screen needs to explain honestly why the track is, or is not,
 /// being written.
 class GeoTrackingStatus {
+  /// Every field required: a status assembled with something left out would
+  /// report a reassuring default for the one thing that is actually wrong.
   const GeoTrackingStatus({
     required this.isTracking,
     required this.permission,
@@ -11,6 +13,8 @@ class GeoTrackingStatus {
     required this.locationServicesEnabled,
   });
 
+  /// Decodes what both the `status` call and the status channel send — one
+  /// shape, so a polled status and a pushed one cannot disagree.
   factory GeoTrackingStatus.fromMap(Map<Object?, Object?> map) =>
       GeoTrackingStatus(
         isTracking: map['is_tracking']! as bool,
@@ -23,6 +27,8 @@ class GeoTrackingStatus {
   /// Whether a tracking session is currently running.
   final bool isTracking;
 
+  /// What the OS currently grants. Only [GeoPermission.always] keeps a session
+  /// alive once the app is backgrounded.
   final GeoPermission permission;
 
   /// The backend rejected our credentials. Uploading is halted, collection

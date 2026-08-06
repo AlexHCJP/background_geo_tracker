@@ -1,6 +1,6 @@
 import XCTest
 
-@testable import attractor_geo
+@testable import background_geo_tracker
 
 final class GeoConfigStoreTests: XCTestCase {
     private var config: GeoConfigStore!

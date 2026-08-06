@@ -2,7 +2,7 @@
 #
 # This file *replaces* the package-root `.gitignore` for publishing — it does
 # not add to it. Everything that `.gitignore` held back at this level has to be
-# restated here or it ships: `ios/attractor_geo/.build` alone is ~73 MB of
+# restated here or it ships: `ios/background_geo_tracker/.build` alone is ~73 MB of
 # Swift Package Manager output, and only the root `.gitignore` covers it.
 #
 # `example/` is kept on purpose. pub.dev renders it as the package's example

@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="attractor_geo_example"
+        android:label="background_geo_tracker_example"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
