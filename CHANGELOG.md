@@ -1,3 +1,32 @@
+## 0.3.0
+
+First release on pub.dev. Nothing about how tracking works changed; everything
+below is naming, packaging and documentation.
+
+* **Renamed from `attractor_geo` to `background_geo_tracker`**, and
+  `AttractorGeoController` to `BackgroundGeoTracker` with it. The old name said
+  who wrote the package rather than what it does, which is no use to anyone
+  finding it on pub.dev. Update the dependency, the import and the one class
+  name; nothing else about the API moved.
+* **Storage identifiers deliberately kept as `attractor_geo*`** — the SQLite
+  filenames, the Keychain service, the `UserDefaults` prefix, the
+  `SharedPreferences` files, the notification channel and the WorkManager job
+  names. Renaming them would orphan the queue and the stored credentials of
+  every install that upgrades, and leave an already-scheduled Android job that
+  the new code no longer knows how to cancel. An upgrade from 0.2.0 keeps its
+  undelivered points.
+* Documentation rewritten for use outside the repository it was extracted
+  from. The install snippet is a version, not a path, and the passages that
+  pointed at wrapper classes living in that app are gone — `reset()` on
+  sign-out and re-`configure()` on `start()` are now stated as the host's job,
+  because outside that app nothing else does them for you.
+* Dropped the App Transport Security and Android cleartext-HTTP sections. Both
+  documented how to weaken a host app's network security to reach a plaintext
+  development backend, which is a local concern and not something a package
+  should be teaching.
+* Every public member now carries documentation, and the package ships with a
+  `.pubignore`, MIT licence and pub.dev metadata.
+
 ## 0.2.0
 
 * **Added `reset()`** — ends the session and forgets what belonged to the

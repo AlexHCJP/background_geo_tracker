@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'background_geo_tracker'
-  s.version          = '0.2.0'
+  s.version          = '0.3.0'
   s.summary          = 'Native continuous geolocation tracking with upload.'
   s.description      = <<-DESC
 Records a continuous route track and uploads it in batches, without depending

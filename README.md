@@ -20,7 +20,7 @@ backgrounded or evicted from memory, and resumes by itself afterwards.
 
 ```yaml
 dependencies:
-  background_geo_tracker: ^0.2.0
+  background_geo_tracker: ^0.3.0
 ```
 
 Platform floors, both enforced by the package:
@@ -73,24 +73,7 @@ gets to keep running, and `location` is what keeps us alive; while alive,
 suspension. Declaring `fetch` or `processing` "to be safe" is actively harmful:
 App Review asks you to justify every mode you declare, and we use neither.
 
-### 2. App Transport Security, if your backend is plain HTTP
-
-iOS blocks cleartext HTTP by default. Uploads to an `http://` URL fail with no
-obvious cause — the queue simply never drains. For local development against
-`http://localhost:8080`, add to the **host app's** `Info.plist`:
-
-```xml
-<key>NSAppTransportSecurity</key>
-<dict>
-	<key>NSAllowsLocalNetworking</key>
-	<true/>
-</dict>
-```
-
-Do not ship a blanket `NSAllowsArbitraryLoads` to production — App Review asks
-for a justification, and there is rarely a good one.
-
-### 3. Nothing else
+### 2. Nothing else
 
 No `AppDelegate` changes. The plugin registers its own application delegate, so
 the relaunch path — iOS waking the app in the background after a significant
@@ -154,26 +137,7 @@ notification prompt block a track.
 Asked at `start` rather than next to the location prompt so that a user who
 granted location before this behaviour existed still gets asked once.
 
-### 3. Cleartext HTTP, if your backend is plain HTTP
-
-Android blocks cleartext from API 28. Uploads to an `http://` URL fail
-silently and the queue never drains. For local development, add a network
-security config to the **host app** and point `android:networkSecurityConfig`
-at it, or scope it narrowly:
-
-```xml
-<!-- res/xml/network_security_config.xml -->
-<network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">10.0.2.2</domain>
-    </domain-config>
-</network-security-config>
-```
-
-Prefer a scoped `domain-config` over `android:usesCleartextTraffic="true"`,
-which opens the whole app.
-
-### 4. Background location goes through Settings
+### 3. Background location goes through Settings
 
 From Android 11 `ACCESS_BACKGROUND_LOCATION` cannot be granted from an in-app
 dialog. The second `requestPermission()` call deep-links to the app's settings
