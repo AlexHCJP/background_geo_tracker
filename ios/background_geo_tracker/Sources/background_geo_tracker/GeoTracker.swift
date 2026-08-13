@@ -1,6 +1,5 @@
 import CoreLocation
 import Foundation
-import UIKit
 
 /// The collector. Keeps standard location updates running in the background,
 /// and holds significant-location-change as the anchor that lets iOS relaunch
@@ -167,22 +166,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     // MARK: - Recording
 
     private func record(_ location: CLLocation) {
-        let row = GeoPointRow(
-            id: UUID().uuidString,
-            lat: location.coordinate.latitude,
-            lon: location.coordinate.longitude,
-            accuracy: location.horizontalAccuracy,
-            altitude: location.verticalAccuracy >= 0 ? location.altitude : nil,
-            // CLLocation reports -1 when it has nothing, which must not be
-            // sent on as a real reading.
-            speed: location.speed >= 0 ? location.speed : nil,
-            heading: location.course >= 0 ? location.course : nil,
-            recordedAtMillis: Int64(
-                location.timestamp.timeIntervalSince1970 * 1000
-            ),
-            isMock: isSimulated(location),
-            batteryLevel: batteryLevel()
-        )
+        let row = GeoPointRow.from(location)
 
         queue?.enqueue(
             row,
@@ -193,19 +177,51 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         onQueueGrew?()
     }
 
-    private func isSimulated(_ location: CLLocation) -> Bool {
-        if #available(iOS 15.0, *) {
-            return location.sourceInformation?.isSimulatedBySoftware ?? false
-        }
-        // No API below iOS 15 — reported as not simulated rather than guessed.
-        return false
-    }
+    // MARK: - Reading
 
-    /// Fraction from 0.0 to 1.0, as the wire format requires.
-    private func batteryLevel() -> Double? {
-        UIDevice.current.isBatteryMonitoringEnabled = true
-        let level = UIDevice.current.batteryLevel
-        return level >= 0 ? Double(level) : nil
+    /// A cached fix younger than this is handed back as it is. Asking
+    /// CoreLocation for a fresh one costs seconds the caller is asking this
+    /// method to avoid, and a fix a minute old is the same room.
+    private static let cacheMaxAge: TimeInterval = 60
+
+    /// The position now, for a caller that cannot wait for the session's next
+    /// point — which, behind a distance filter, may be a long way off.
+    ///
+    /// Neither queued nor pushed onto the points stream: this is a read, and a
+    /// track that grew every time a screen asked where it was would no longer
+    /// be a record of where the device went.
+    ///
+    /// Falls back to a stale cached fix when the fresh one does not arrive in
+    /// time. Somewhere the reader was is worth more to a map than nothing, and
+    /// the point carries its own timestamp for a caller that disagrees.
+    func currentPosition(
+        timeout: TimeInterval,
+        completion: @escaping ([String: Any]?) -> Void
+    ) {
+        switch authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            break
+        default:
+            // Deliberately does not prompt: a screen asking where it is must
+            // not be what puts a permission dialog in front of the user.
+            completion(nil)
+            return
+        }
+
+        let cached = manager.location
+        if let cached,
+           -cached.timestamp.timeIntervalSinceNow <= Self.cacheMaxAge {
+            completion(PointJson.encodeOne(GeoPointRow.from(cached)))
+            return
+        }
+
+        OneShotLocation.request(timeout: timeout) { fresh in
+            guard let location = fresh ?? cached else {
+                completion(nil)
+                return
+            }
+            completion(PointJson.encodeOne(GeoPointRow.from(location)))
+        }
     }
 
     private func emitStatus() {

@@ -37,14 +37,20 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
         // Needed for the relaunch path below.
         registrar.addApplicationDelegate(instance)
 
-        GeoTracker.shared.onQueueGrew = {
-            Uploader.shared.drainIfNeeded(force: false)
-        }
+        AttractorGeoLaunch.wireUploader()
     }
 
-    /// iOS relaunches the app in the background when a significant location
-    /// change arrives after the process died. Resuming here is what makes the
-    /// session survive eviction — Dart is not involved and may never run.
+    /// Covers the launches that reach a registered plugin: a normal one, and —
+    /// on an app still using the pre-scene lifecycle — a relaunch in the
+    /// background after a significant location change.
+    ///
+    /// It does NOT cover that relaunch in a scene-based app, which is every
+    /// app built against a recent Flutter: nothing registers a plugin on a
+    /// launch that connects no UI scene, so this method is never called there.
+    /// `AttractorGeoLaunch.resumeIfTracking()`, which the host calls from its
+    /// own `AppDelegate`, is what covers it — see that type. Kept anyway: it
+    /// is idempotent, and a host that has not added the line still gets the
+    /// old behaviour rather than none.
     public func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any] = [:]
@@ -97,6 +103,17 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
 
         case "status":
             result(GeoTracker.shared.statusMap())
+
+        case "currentPosition":
+            let arguments = call.arguments as? [String: Any]
+            let timeout = arguments?["timeout_seconds"] as? Int ?? 10
+            // The only method here that answers later: `result` is called once,
+            // on the main queue, whenever the fix or the timeout arrives.
+            GeoTracker.shared.currentPosition(
+                timeout: TimeInterval(timeout)
+            ) { point in
+                result(point)
+            }
 
         case "requestPermission":
             // The returned name is the state *before* the prompt is answered,

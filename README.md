@@ -73,11 +73,36 @@ gets to keep running, and `location` is what keeps us alive; while alive,
 suspension. Declaring `fetch` or `processing` "to be safe" is actively harmful:
 App Review asks you to justify every mode you declare, and we use neither.
 
-### 2. Nothing else
+### 2. `ios/Runner/AppDelegate.swift`
 
-No `AppDelegate` changes. The plugin registers its own application delegate, so
-the relaunch path — iOS waking the app in the background after a significant
-location change — works with no host code.
+One line, and the session survives the process dying:
+
+```swift
+import background_geo_tracker
+
+override func application(
+  _ application: UIApplication,
+  didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+) -> Bool {
+  AttractorGeoLaunch.resumeIfTracking()
+  return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+}
+```
+
+**Leave it out and tracking never comes back after a reboot.** iOS wakes the
+app in the background when a significant location change arrives after the
+process died, and hands that launch to `UIApplicationDelegate` alone. A
+scene-based app — which is every app on a recent Flutter — instantiates its
+storyboard only when a *UI* scene connects, and a background launch connects
+none. The implicit `FlutterViewController` is what triggers plugin
+registration, so on that path this plugin is never registered and its own
+application delegate is never called. Nothing creates a `CLLocationManager`,
+nothing drains the queue, and the last position the backend has is the one
+from the moment the phone was switched off — until the user opens the app by
+hand. The symptom is a device that goes quiet for hours and looks, from the
+server, like it never moved.
+
+The call is safe on every launch and does nothing when no session was running.
 
 ### Privacy manifest
 
@@ -228,6 +253,31 @@ from Settings mid-session, a reset, and a credential the backend refused. The
 same status may arrive twice — an explicit `stop()` is reported by the plugin
 and again by the collector shutting down — so treat the stream as state to read,
 not as events to count.
+
+### Where am I, right now
+
+```dart
+final point = await geo.currentPosition();          // null when it cannot say
+final soon = await geo.currentPosition(timeout: const Duration(seconds: 3));
+```
+
+`points` is a stream of *changes*: a fix reaches it only once the device has
+moved `distanceFilterMeters`, and whatever was collected before you subscribed
+is gone, because collection does not wait for a listener. So a screen that opens
+while the phone sits on a desk can wait minutes for its first point — which is a
+map with nothing to centre on. `currentPosition` is the answer that stream
+cannot give.
+
+It hands back the platform's own cached fix when that fix is recent, which
+returns at once; otherwise it asks the OS for a fresh one, and falls back to a
+stale cached fix rather than to nothing when that does not arrive in time. Null
+means the permission has not been granted, location services are off, or nothing
+came back in time. It never prompts, so a screen asking where it is cannot be
+what puts a permission dialog in front of the user.
+
+It is a read: the point is neither queued for upload nor pushed onto `points`,
+and asking does not start a session. The two are independent — this answers with
+no session running, and a running session is not disturbed by it.
 
 ### Recovering from `authFailed`
 

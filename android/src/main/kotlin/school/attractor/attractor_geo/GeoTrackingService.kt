@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
-import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -20,7 +19,6 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -140,22 +138,7 @@ class GeoTrackingService : Service() {
     }
 
     private fun record(location: Location) {
-        val row = PointRow(
-            id = UUID.randomUUID().toString(),
-            lat = location.latitude,
-            lon = location.longitude,
-            accuracy = location.accuracy.toDouble(),
-            altitude = if (location.hasAltitude()) location.altitude else null,
-            speed = if (location.hasSpeed()) location.speed.toDouble() else null,
-            heading = if (location.hasBearing()) {
-                location.bearing.toDouble()
-            } else {
-                null
-            },
-            recordedAtMillis = location.time,
-            isMock = isMock(location),
-            batteryLevel = batteryLevel(),
-        )
+        val row = location.toPointRow(this)
 
         scope.launch {
             queue.enqueue(row, config.queueMaxPoints, config.queueMaxAgeDays)
@@ -164,23 +147,6 @@ class GeoTrackingService : Service() {
                 UploadWorker.enqueueNow(this@GeoTrackingService)
             }
         }
-    }
-
-    private fun isMock(location: Location): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            location.isMock
-        } else {
-            @Suppress("DEPRECATION")
-            location.isFromMockProvider
-        }
-
-    /** Fraction from 0.0 to 1.0, as the wire format requires. */
-    private fun batteryLevel(): Double? {
-        val manager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        val percent = manager.getIntProperty(
-            BatteryManager.BATTERY_PROPERTY_CAPACITY,
-        )
-        return if (percent in 0..100) percent / 100.0 else null
     }
 
     private fun buildNotification(): Notification {

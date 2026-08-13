@@ -1,3 +1,44 @@
+## 0.4.1
+
+* **iOS: a session comes back after a reboot again.** The relaunch path ran
+  entirely through the plugin's own application delegate, and a plugin is
+  registered only once the implicit `FlutterViewController` exists. In a
+  scene-based app that view controller is instantiated when a UI scene
+  connects — and iOS waking the app in the background for a significant
+  location change connects none. So on the one launch the whole path was built
+  for, nothing ran: no `CLLocationManager`, no drain, no points. A phone
+  switched off and back on stayed silent, and the position the backend served
+  for it was the one from the moment it powered down, until its owner opened
+  the app by hand.
+* **One line for hosts:** call `AttractorGeoLaunch.resumeIfTracking()` from
+  your `AppDelegate`'s `application(_:didFinishLaunchingWithOptions:)`. That
+  method is what a background launch does call. See the iOS setup section of
+  the README, which until now said no `AppDelegate` changes were needed.
+* The collector's "a point arrived" hook onto the uploader moved next to the
+  resume, so both ways of bringing the native stack up wire it identically.
+
+---
+
+## 0.4.0
+
+* **`currentPosition()`** — one fix, read once, for a caller that cannot wait
+  for the session's next point. `points` only carries a fix after the device
+  has moved `distanceFilterMeters`, and drops whatever it collects while nobody
+  is subscribed, so a map opening on a stationary phone had nothing to centre
+  on for as long as it took the device to move. Returns a recent cached fix at
+  once, otherwise asks the OS and falls back to a stale one; null when the
+  permission is missing or nothing arrives in time. It never prompts, never
+  queues the point for upload, never pushes it onto `points`, and neither needs
+  nor disturbs a running session.
+* iOS runs the read on a `CLLocationManager` of its own. The tracker's manager
+  has one delegate for both ways of asking, so a `requestLocation` on it would
+  have delivered its answer into the collector — recording a point nobody asked
+  to record. Android asks the fused provider through `CurrentLocationRequest`,
+  which applies the timeout itself.
+* Building a point out of a platform location moved to one place per platform,
+  shared by the collector and the read, so the same fix cannot describe itself
+  differently depending on which way it arrived.
+
 ## 0.3.0
 
 First release on pub.dev. Nothing about how tracking works changed; everything

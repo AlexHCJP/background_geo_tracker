@@ -11,6 +11,10 @@ void main() {
 
   late List<MethodCall> calls;
 
+  /// What the platform answers `currentPosition` with. A field rather than a
+  /// constant because "the platform has nothing" is half of that contract.
+  late Map<Object?, Object?>? position;
+
   BackgroundGeoTracker controller() => BackgroundGeoTracker(
     methodChannel: methodChannel,
     pointsChannel: pointsChannel,
@@ -25,14 +29,29 @@ void main() {
     'location_services_enabled': true,
   };
 
+  const positionPayload = <Object?, Object?>{
+    'id': 'a5f1',
+    'lat': 55.751244,
+    'lon': 37.618423,
+    'accuracy': 12.0,
+    'altitude': 156.0,
+    'speed': null,
+    'heading': null,
+    'recorded_at': '2026-08-12T09:15:00.000Z',
+    'is_mock': false,
+    'battery_level': 0.62,
+  };
+
   setUp(() {
     calls = <MethodCall>[];
+    position = positionPayload;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(methodChannel, (call) async {
           calls.add(call);
           return switch (call.method) {
             'status' => statusPayload,
             'requestPermission' => 'when_in_use',
+            'currentPosition' => position,
             _ => null,
           };
         });
@@ -81,6 +100,23 @@ void main() {
     expect(status.isTracking, isTrue);
     expect(status.permission, GeoPermission.always);
     expect(status.queuedPoints, 7);
+  });
+
+  test('currentPosition decodes the fix and carries its timeout', () async {
+    final point = await controller().currentPosition(
+      timeout: const Duration(seconds: 4),
+    );
+
+    expect(calls.single.method, 'currentPosition');
+    expect(calls.single.arguments, <String, Object?>{'timeout_seconds': 4});
+    expect(point!.latitude, 55.751244);
+    expect(point.recordedAt.isUtc, isTrue);
+  });
+
+  test('currentPosition is null when the platform has no fix', () async {
+    position = null;
+
+    expect(await controller().currentPosition(), isNull);
   });
 
   test('requestPermission decodes the returned permission name', () async {

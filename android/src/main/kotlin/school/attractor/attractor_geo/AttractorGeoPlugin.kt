@@ -136,6 +136,16 @@ class AttractorGeoPlugin :
 
             "status" -> scope.launch { result.success(currentStatus()) }
 
+            "currentPosition" -> {
+                val timeout = call.argument<Int>("timeout_seconds") ?: 10
+                // The only call here that answers later. Play Services
+                // delivers on the main thread, which is where `result` has to
+                // be called from.
+                OneShotLocation.request(context, timeout) { location ->
+                    result.success(location?.toPointRow(context)?.toEventMap())
+                }
+            }
+
             "requestPermission" -> {
                 requestNextPermission()
                 result.success(permissionName())

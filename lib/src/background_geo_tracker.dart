@@ -61,6 +61,33 @@ class BackgroundGeoTracker {
   /// queue is worth keeping, while this throws data away.
   Future<void> reset() => _methods.invokeMethod<void>('reset');
 
+  /// Where the device is now, read once.
+  ///
+  /// [points] is a stream of *changes*: a fix reaches it only once the device
+  /// has moved `distanceFilterMeters`, so a listener that subscribes while the
+  /// phone sits on a desk can wait minutes for its first one — and whatever
+  /// was collected before it subscribed is gone, because collection does not
+  /// wait for a listener. A map has nothing to centre on for all that time.
+  /// This is the "where am I" that stream cannot answer.
+  ///
+  /// Hands back the platform's own cached fix when that fix is recent, which
+  /// costs nothing and returns at once; otherwise asks the OS for a fresh one
+  /// and waits up to [timeout], falling back to a stale cached fix rather than
+  /// to nothing. Null when the permission has not been granted, when location
+  /// services are off, and when nothing arrives in time.
+  ///
+  /// A read, not a recording: the point is neither queued for upload nor
+  /// pushed onto [points], so asking never adds to the track.
+  Future<GeoPoint?> currentPosition({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final map = await _methods.invokeMapMethod<Object?, Object?>(
+      'currentPosition',
+      <String, Object?>{'timeout_seconds': timeout.inSeconds},
+    );
+    return map == null ? null : GeoPoint.fromMap(map);
+  }
+
   /// The current state, read once. [statusChanges] is what follows it; this is
   /// for the first paint, before anything has had a chance to change.
   Future<GeoTrackingStatus> status() async {
