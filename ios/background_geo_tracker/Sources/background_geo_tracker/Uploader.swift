@@ -34,21 +34,37 @@ final class Uploader {
         }
     }
 
+    /// Starts the sweep that sends a half-full batch, and sweeps once now.
+    ///
+    /// Safe to call as often as the host likes, which matters because it is
+    /// called on every launch and every return to the foreground. It used to
+    /// cancel and rebuild the timer each time, and a rebuilt timer starts its
+    /// interval over: a reader who opens the app, glances at it and closes it
+    /// again would push the next sweep a full interval further away every
+    /// time, and the points would sit in the queue indefinitely. An already
+    /// running sweep is therefore left exactly as it is.
+    ///
+    /// The immediate attempt is the other half of the same problem. A queue
+    /// that survived the last run has already waited; making it wait out a
+    /// fresh interval on top — while the app is open and on a network, which
+    /// is the best moment it will get — is the wrong way round.
     func startPeriodicDrain() {
-        stopPeriodicDrain()
-        // A zero interval would spin the timer flat out; the floor keeps a
-        // bad config from turning into a battery fire.
-        let interval = max(1, config.uploadIntervalSeconds)
-        let timer = DispatchSource.makeTimerSource(queue: serial)
-        timer.schedule(
-            deadline: .now() + .seconds(interval),
-            repeating: .seconds(interval)
-        )
-        timer.setEventHandler { [weak self] in
-            self?.drainIfNeeded(force: true)
+        if timer == nil {
+            // A zero interval would spin the timer flat out; the floor keeps a
+            // bad config from turning into a battery fire.
+            let interval = max(1, config.uploadIntervalSeconds)
+            let timer = DispatchSource.makeTimerSource(queue: serial)
+            timer.schedule(
+                deadline: .now() + .seconds(interval),
+                repeating: .seconds(interval)
+            )
+            timer.setEventHandler { [weak self] in
+                self?.drainIfNeeded(force: true)
+            }
+            timer.resume()
+            self.timer = timer
         }
-        timer.resume()
-        self.timer = timer
+        drainIfNeeded(force: true)
     }
 
     func stopPeriodicDrain() {
@@ -60,15 +76,45 @@ final class Uploader {
     /// so a half-full batch still goes out.
     func drainIfNeeded(force: Bool) {
         serial.async { [weak self] in
-            guard let self, let queue = self.queue else { return }
-            guard self.config.isConfigured, !self.config.authFailed else {
+            guard let self else { return }
+            // Each guard below ends a drain, and each used to end it in
+            // silence. A queue that grows while the collector reports itself
+            // healthy is the symptom of every one of them, so the reason has
+            // to survive the return — see `GeoTrackingStatus.lastUpload`.
+            guard let queue = self.queue else {
+                self.config.lastUpload = "no queue — storage unavailable"
                 return
             }
+            guard self.config.isConfigured else {
+                self.config.lastUpload = "not configured"
+                return
+            }
+            guard !self.config.authFailed else {
+                self.config.lastUpload = "halted: credentials refused"
+                return
+            }
+            // These two record nothing on purpose: they are the states of a
+            // drain that is working — one in flight, one waiting out a
+            // backoff — and writing them would overwrite the outcome that
+            // caused the wait, which is the part worth reading.
             guard !self.draining else { return }
             guard UploadPolicy.mayAttempt(
                 now: Date(), notBefore: self.notBefore
             ) else { return }
-            guard force || queue.count() >= self.config.batchSize else { return }
+            guard force || queue.count() >= self.config.batchSize else {
+                // Only while nothing has ever been sent. This is the ordinary
+                // state between sweeps and it arrives with every point, so
+                // writing it unconditionally would bury the outcome of the
+                // last real attempt under it seconds later — and that outcome
+                // is the whole reason this field exists. It is worth saying
+                // exactly once: on an uploader that has never run, `never`
+                // alone cannot be told from one that is broken.
+                if self.config.lastUpload == "never" {
+                    self.config.lastUpload =
+                        "waiting for a sweep — \(queue.count())/\(self.config.batchSize)"
+                }
+                return
+            }
             self.draining = true
             self.sendNextBatch()
         }
@@ -87,9 +133,13 @@ final class Uploader {
             return
         }
 
-        guard let url = URL(
-            string: config.baseUrl.trimmedTrailingSlash + config.path
-        ) else {
+        guard let url = URL(string: config.url) else {
+            // The one failure with no network in it and no way to notice from
+            // outside: the collector goes on filling a queue that can never be
+            // posted anywhere. Recorded so the status says so.
+            config.lastUpload = config.url.isEmpty
+                ? "no url — never configured"
+                : "bad url: \(config.url)"
             draining = false
             return
         }
@@ -125,12 +175,17 @@ final class Uploader {
         response: URLResponse?, error: Error?, batch: [GeoPointRow]
     ) {
         let outcome: UploadOutcome
-        if error != nil {
+        if let error {
             outcome = .retry
+            config.lastUpload = "network: \(error.localizedDescription)"
         } else if let http = response as? HTTPURLResponse {
             outcome = UploadPolicy.classify(http.statusCode)
+            config.lastUpload = outcome == .success
+                ? "ok (\(batch.count) points)"
+                : "http \(http.statusCode)"
         } else {
             outcome = .retry
+            config.lastUpload = "no response"
         }
 
         switch outcome {
@@ -170,11 +225,5 @@ final class Uploader {
                 self?.drainIfNeeded(force: true)
             }
         }
-    }
-}
-
-private extension String {
-    var trimmedTrailingSlash: String {
-        hasSuffix("/") ? String(dropLast()) : self
     }
 }

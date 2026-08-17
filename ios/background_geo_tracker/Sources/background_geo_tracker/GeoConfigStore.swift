@@ -10,10 +10,7 @@ final class GeoConfigStore {
     private func key(_ name: String) -> String { Self.prefix + name }
 
     func save(_ config: [String: Any]) {
-        defaults.set(
-            config["base_url"] as? String ?? "", forKey: key("base_url")
-        )
-        defaults.set(config["path"] as? String ?? "", forKey: key("path"))
+        defaults.set(config["url"] as? String ?? "", forKey: key("url"))
         defaults.set(
             config["distance_filter_meters"] as? Int ?? 20,
             forKey: key("distance_filter_meters")
@@ -62,8 +59,7 @@ final class GeoConfigStore {
     }
 
     private static let ownedKeys = [
-        "base_url",
-        "path",
+        "url",
         "distance_filter_meters",
         "min_interval_seconds",
         "batch_size",
@@ -73,12 +69,14 @@ final class GeoConfigStore {
         "configured",
         "is_tracking",
         "auth_failed",
+        "last_upload",
     ]
 
     var isConfigured: Bool { defaults.bool(forKey: key("configured")) }
 
-    var baseUrl: String { defaults.string(forKey: key("base_url")) ?? "" }
-    var path: String { defaults.string(forKey: key("path")) ?? "" }
+    /// The whole endpoint, as the Dart side wrote it down. Not assembled from
+    /// parts here — see `GeoUploadConfig.url`.
+    var url: String { defaults.string(forKey: key("url")) ?? "" }
 
     private func int(_ name: String, _ fallback: Int) -> Int {
         defaults.object(forKey: key(name)) == nil
@@ -111,5 +109,16 @@ final class GeoConfigStore {
     var authFailed: Bool {
         get { defaults.bool(forKey: key("auth_failed")) }
         set { defaults.set(newValue, forKey: key("auth_failed")) }
+    }
+
+    /// How the last drain attempt ended. Kept here rather than on the uploader
+    /// because it is written on the uploader's serial queue and read from the
+    /// main one, and `UserDefaults` is the store this package already trusts
+    /// across threads. Persisting it is a bonus: the answer survives the
+    /// process, so a drain that failed in the background is still there to
+    /// read when the app is next opened.
+    var lastUpload: String {
+        get { defaults.string(forKey: key("last_upload")) ?? "never" }
+        set { defaults.set(newValue, forKey: key("last_upload")) }
     }
 }

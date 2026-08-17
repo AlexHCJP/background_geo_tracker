@@ -39,8 +39,7 @@ class GeoConfigStore(
 
     fun save(config: Map<String, Any?>) {
         prefs.edit().apply {
-            putString("base_url", config.string("base_url", ""))
-            putString("path", config.string("path", ""))
+            putString("url", config.string("url", ""))
             putInt(
                 "distance_filter_meters",
                 config.int("distance_filter_meters", 20),
@@ -94,8 +93,11 @@ class GeoConfigStore(
 
     fun isConfigured(): Boolean = prefs.getBoolean("configured", false)
 
-    val baseUrl: String get() = prefs.getString("base_url", "")!!
-    val path: String get() = prefs.getString("path", "")!!
+    /**
+     * The whole endpoint, as the Dart side wrote it down. Not assembled from
+     * parts here — see `GeoUploadConfig.url`.
+     */
+    val url: String get() = prefs.getString("url", "")!!
     val distanceFilterMeters: Int
         get() = prefs.getInt("distance_filter_meters", 20)
     val minIntervalSeconds: Int get() = prefs.getInt("min_interval_seconds", 10)
@@ -124,6 +126,15 @@ class GeoConfigStore(
     var authFailed: Boolean
         get() = prefs.getBoolean("auth_failed", false)
         set(value) = prefs.edit().putBoolean("auth_failed", value).apply()
+
+    /**
+     * How the last drain attempt ended. Persisted, so a drain that failed
+     * while the app was closed is still there to read when it is next opened —
+     * which, for a background uploader, is the only time anyone reads it.
+     */
+    var lastUpload: String
+        get() = prefs.getString("last_upload", "never")!!
+        set(value) = prefs.edit().putString("last_upload", value).apply()
 
     /**
      * Whether we have ever shown the location prompt. Distinguishes "not asked

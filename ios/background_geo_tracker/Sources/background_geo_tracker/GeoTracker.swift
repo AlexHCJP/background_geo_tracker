@@ -105,6 +105,11 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             "auth_failed": config.authFailed,
             "queued_points": queue?.count() ?? 0,
             "location_services_enabled": locationServicesEnabled(),
+            // What the uploader would actually POST to, and how it last got
+            // on. Between them these turn "the queue is not draining" from a
+            // question into an answer — see `GeoTrackingStatus`.
+            "upload_url": config.url,
+            "last_upload": config.lastUpload,
         ]
     }
 

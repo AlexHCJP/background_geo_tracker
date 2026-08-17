@@ -34,8 +34,7 @@ void main() {
 
     await geo.configure(
       GeoUploadConfig.standard(
-        baseUrl: 'https://example.invalid',
-        path: '/v1/tracking/points',
+        url: 'https://example.invalid/v1/tracking/points',
         headers: const <String, String>{'Authorization': 'Bearer test'},
         notificationTitle: 'Tracking',
         notificationBody: 'Recording your route',

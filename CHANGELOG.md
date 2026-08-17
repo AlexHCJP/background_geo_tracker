@@ -1,3 +1,37 @@
+## 0.5.0
+
+* **Breaking: `GeoUploadConfig` takes one `url`, not `baseUrl` and `path`.**
+  The uploader never had a use for the two halves apart — it joined them back
+  together and posted to the result. All the split bought was a way to be
+  wrong about who owns the slash between them, re-answered by every caller,
+  with the caller that got it wrong finding out as a 404 inside a background
+  uploader nobody watches. Callers pass the finished endpoint:
+
+  ```dart
+  GeoUploadConfig.standard(url: 'https://api.example.com/v1/points', …)
+  ```
+
+  The method-channel key changes with it — `base_url` and `path` become `url`
+  — and both platforms read only the new one. Nothing reads the old pair and
+  nothing migrates it: an install carrying a stored config from an earlier
+  build reads an empty URL and posts nowhere until something calls `configure`
+  again. Reinstall, or make the host re-configure on launch.
+* **The status says why the queue is not draining.** `GeoTrackingStatus` gains
+  `uploadUrl` — the endpoint the *native* uploader holds, which is not always
+  what the app believes it configured — and `lastUpload`, how the last drain
+  ended: `ok`, `no url — never configured`, `http 500`, `network: …`,
+  `halted: credentials refused`. The uploader gives up at five separate guards
+  and did so in silence at every one, which made a growing queue on an
+  otherwise healthy-looking collector impossible to explain from a log. Both
+  fields decode with fallbacks, so a platform that has not implemented them
+  still produces a usable status.
+* **Android: an unusable endpoint no longer kills the worker.** `Request.url`
+  throws `IllegalArgumentException`, which the worker's `IOException` catch
+  never covered, so an empty URL took the drain down with nothing to show for
+  it. Parsed up front now, and recorded as `lastUpload`.
+
+---
+
 ## 0.4.1
 
 * **iOS: a session comes back after a reboot again.** The relaunch path ran

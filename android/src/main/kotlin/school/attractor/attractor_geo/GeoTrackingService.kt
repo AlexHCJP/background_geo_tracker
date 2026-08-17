@@ -104,16 +104,26 @@ class GeoTrackingService : Service() {
      * to wake up and find nothing.
      */
     private fun startDrainLoop() {
-        drains?.cancel()
-        val period = config.uploadIntervalSeconds.coerceAtLeast(1) * 1000L
-        drains = scope.launch {
-            while (isActive) {
-                delay(period)
-                if (queue.count() > 0) {
-                    UploadWorker.enqueueNow(this@GeoTrackingService)
+        // Left alone when it is already running. `onStartCommand` arrives on
+        // every launch and every return to the foreground — the host re-sends
+        // the endpoint and credentials then — and a loop rebuilt each time
+        // starts its delay over, so a reader who keeps opening the app keeps
+        // pushing away the very sweep they are waiting for.
+        if (drains?.isActive != true) {
+            val period = config.uploadIntervalSeconds.coerceAtLeast(1) * 1000L
+            drains = scope.launch {
+                while (isActive) {
+                    delay(period)
+                    if (queue.count() > 0) {
+                        UploadWorker.enqueueNow(this@GeoTrackingService)
+                    }
                 }
             }
         }
+        // Whatever survived the last run has already waited; making it sit out
+        // a fresh period while the app is open and on a network is the wrong
+        // way round.
+        if (queue.count() > 0) UploadWorker.enqueueNow(this)
     }
 
     private fun requestUpdates() {

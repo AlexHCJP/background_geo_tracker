@@ -6,8 +6,7 @@ class GeoUploadConfig {
   /// Every knob stated outright, for an app that has a reason to disagree with
   /// the defaults. [GeoUploadConfig.standard] is the one to reach for first.
   const GeoUploadConfig({
-    required this.baseUrl,
-    required this.path,
+    required this.url,
     required this.headers,
     required this.distanceFilterMeters,
     required this.minIntervalSeconds,
@@ -19,35 +18,59 @@ class GeoUploadConfig {
     required this.notificationBody,
   });
 
-  /// The collection and batching defaults the design settled on. Tuned for a
-  /// route track that is useful without draining the battery.
+  /// The collection and batching defaults the design settled on, tuned for a
+  /// route track that is useful without draining the battery — with every one
+  /// of them open to being overridden.
+  ///
+  /// The defaults live here and nowhere else, so an app that disagrees with
+  /// one of them says so in one word rather than restating the other five.
+  ///
+  /// [batchSize] is the one worth understanding before changing, because it
+  /// does two jobs: it is how many points a request carries, *and* how many
+  /// have to be queued before the arrival of a point triggers a send on its
+  /// own. Setting it to 1 therefore means "post every fix the moment it is
+  /// recorded" — which is the freshest a position can be, and also one HTTP
+  /// request per fix. Behind a 20 m filter that is a request every 20 m
+  /// walked, and a backlog drains one point per round trip.
   factory GeoUploadConfig.standard({
-    required String baseUrl,
-    required String path,
+    required String url,
     required Map<String, String> headers,
     required String notificationTitle,
     required String notificationBody,
+    int distanceFilterMeters = 20,
+    int minIntervalSeconds = 10,
+    int batchSize = 50,
+    int uploadIntervalSeconds = 60,
+    int queueMaxPoints = 20000,
+    int queueMaxAgeDays = 7,
   }) => GeoUploadConfig(
-    baseUrl: baseUrl,
-    path: path,
+    url: url,
     headers: headers,
-    distanceFilterMeters: 20,
-    minIntervalSeconds: 10,
-    batchSize: 50,
-    uploadIntervalSeconds: 60,
-    queueMaxPoints: 20000,
-    queueMaxAgeDays: 7,
+    distanceFilterMeters: distanceFilterMeters,
+    minIntervalSeconds: minIntervalSeconds,
+    batchSize: batchSize,
+    uploadIntervalSeconds: uploadIntervalSeconds,
+    queueMaxPoints: queueMaxPoints,
+    queueMaxAgeDays: queueMaxAgeDays,
     notificationTitle: notificationTitle,
     notificationBody: notificationBody,
   );
 
-  /// Origin the batches are posted to, with no trailing slash — for example
-  /// `https://api.example.com`.
-  final String baseUrl;
-
-  /// Appended to [baseUrl] to form the endpoint, for example `/geo/v1/points`.
-  /// The native uploader POSTs a JSON array of points there.
-  final String path;
+  /// The endpoint the batches are posted to, whole — for example
+  /// `https://api.example.com/geo/v1/points`. The native uploader POSTs a JSON
+  /// array of points there.
+  ///
+  /// One string rather than an origin and a path to join: the uploader has no
+  /// use for the two halves apart, and splitting them only creates a way to be
+  /// wrong. Whether the join needs a slash between them, and which side owns
+  /// it, is a question the caller already answered when it wrote the address
+  /// down — asking it again here means every caller re-answers it, and the one
+  /// that gets it wrong finds out as a silent 404 in a background uploader.
+  ///
+  /// Must be `https` on iOS unless the host is local: App Transport Security
+  /// polices URLSession, and a plain-HTTP endpoint fails with nothing to see
+  /// from inside the app.
+  final String url;
 
   /// Sent with every upload. Stored natively in encrypted storage, so the
   /// uploader keeps working with no Dart isolate alive.
@@ -92,8 +115,7 @@ class GeoUploadConfig {
   /// The form the method channel carries to the native side. snake_case
   /// because Kotlin and Swift read these keys by name.
   Map<String, Object?> toMap() => <String, Object?>{
-    'base_url': baseUrl,
-    'path': path,
+    'url': url,
     'headers': headers,
     'distance_filter_meters': distanceFilterMeters,
     'min_interval_seconds': minIntervalSeconds,

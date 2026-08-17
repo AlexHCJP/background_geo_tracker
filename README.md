@@ -187,8 +187,7 @@ await geo.requestPermission();
 // 2. URL, credentials and policy. Safe to call repeatedly.
 await geo.configure(
   GeoUploadConfig.standard(
-    baseUrl: 'https://api.example.com',
-    path: '/v1/tracking/points',
+    url: 'https://api.example.com/v1/tracking/points',
     headers: {'Authorization': 'Bearer $token'},
     notificationTitle: 'Tracking',            // Android notification copy;
     notificationBody: 'Recording your route', // ignored on iOS
@@ -288,8 +287,7 @@ fresh token and the queue drains; nothing collected in the meantime is lost.
 if (status.authFailed) {
   await geo.configure(
     GeoUploadConfig.standard(
-      baseUrl: baseUrl,
-      path: path,
+      url: url,
       headers: {'Authorization': 'Bearer $freshToken'},
       notificationTitle: title,
       notificationBody: body,
@@ -312,7 +310,7 @@ await geo.openSystemSettings();
 
 ## Backend contract
 
-`POST {baseUrl}{path}` with a flat JSON array:
+`POST {url}` with a flat JSON array:
 
 ```json
 [

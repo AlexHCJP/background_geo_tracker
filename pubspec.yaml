@@ -2,7 +2,7 @@ name: background_geo_tracker
 description: >-
   Background route tracking for iOS and Android, collected and uploaded in
   native code.
-version: 0.4.1
+version: 0.5.0
 
 homepage: https://github.com/AlexHCJP/background_geo_tracker
 repository: https://github.com/AlexHCJP/background_geo_tracker

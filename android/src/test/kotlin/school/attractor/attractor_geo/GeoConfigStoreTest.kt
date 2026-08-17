@@ -19,8 +19,7 @@ class GeoConfigStoreTest {
     private lateinit var config: GeoConfigStore
 
     private val saved = mapOf<String, Any?>(
-        "base_url" to "https://api.attractor.school",
-        "path" to "/v1/tracking/points",
+        "url" to "https://api.attractor.school/v1/tracking/points",
         "headers" to mapOf("Authorization" to "Bearer secret"),
         "distance_filter_meters" to 20,
         "min_interval_seconds" to 10,
@@ -63,7 +62,7 @@ class GeoConfigStoreTest {
         assertFalse(config.isConfigured())
         assertFalse(config.isTracking)
         assertFalse(config.authFailed)
-        assertEquals("", config.baseUrl)
+        assertEquals("", config.url)
     }
 
     // Without this a signed-out device forgets it has ever shown the location

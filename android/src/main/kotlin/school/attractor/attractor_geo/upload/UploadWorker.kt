@@ -15,6 +15,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -36,7 +37,29 @@ class UploadWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val config = GeoConfigStore(applicationContext)
-        if (!config.isConfigured() || config.authFailed) {
+        // Each of these ends the drain, and each used to end it in silence. A
+        // queue that grows while the collector reports itself healthy is the
+        // symptom of every one of them, so the reason has to survive the
+        // return — see `GeoTrackingStatus.lastUpload`.
+        if (!config.isConfigured()) {
+            config.lastUpload = "not configured"
+            return@withContext Result.success()
+        }
+        if (config.authFailed) {
+            config.lastUpload = "halted: credentials refused"
+            return@withContext Result.success()
+        }
+        // An empty or malformed endpoint makes `url()` throw, and it throws
+        // `IllegalArgumentException` — which the `IOException` catch below
+        // does not cover, so the worker would die with nothing to show for it
+        // while the collector went on filling a queue that can never be sent.
+        val endpoint = config.url.toHttpUrlOrNull()
+        if (endpoint == null) {
+            config.lastUpload = if (config.url.isEmpty()) {
+                "no url — never configured"
+            } else {
+                "bad url: ${config.url}"
+            }
             return@withContext Result.success()
         }
 
@@ -47,7 +70,7 @@ class UploadWorker(
             if (batch.isEmpty()) return@withContext Result.success()
 
             val request = Request.Builder()
-                .url(config.baseUrl.trimEnd('/') + config.path)
+                .url(endpoint)
                 .post(
                     PointJson.encode(batch)
                         .toRequestBody("application/json".toMediaType()),
@@ -61,9 +84,16 @@ class UploadWorker(
 
             val outcome = try {
                 http.newCall(request).execute().use {
-                    UploadPolicy.classify(it.code)
+                    val classified = UploadPolicy.classify(it.code)
+                    config.lastUpload = if (classified == UploadOutcome.SUCCESS) {
+                        "ok (${batch.size} points)"
+                    } else {
+                        "http ${it.code}"
+                    }
+                    classified
                 }
-            } catch (_: IOException) {
+            } catch (e: IOException) {
+                config.lastUpload = "network: ${e.message ?: "failed"}"
                 UploadOutcome.RETRY
             }
 

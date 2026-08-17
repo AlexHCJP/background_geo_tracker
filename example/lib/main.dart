@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 
 /// Replace with any endpoint that captures request bodies — the real one does
 /// not exist yet.
-const String _baseUrl = 'https://example.invalid';
-const String _path = '/v1/tracking/points';
+const String _url = 'https://example.invalid/v1/tracking/points';
 
 void main() => runApp(const HarnessApp());
 
@@ -49,8 +48,7 @@ class _HarnessScreenState extends State<HarnessScreen> {
   Future<void> _configure() async {
     await _geo.configure(
       GeoUploadConfig.standard(
-        baseUrl: _baseUrl,
-        path: _path,
+        url: _url,
         headers: const <String, String>{'Authorization': 'Bearer harness'},
         notificationTitle: 'Attractor tracking',
         notificationBody: 'Recording your route',

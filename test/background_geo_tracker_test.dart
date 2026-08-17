@@ -64,8 +64,7 @@ void main() {
 
   test('configure forwards the serialized config', () async {
     final config = GeoUploadConfig.standard(
-      baseUrl: 'https://api.attractor.school',
-      path: '/v1/tracking/points',
+      url: 'https://api.attractor.school/v1/tracking/points',
       headers: const <String, String>{'Authorization': 'Bearer token'},
       notificationTitle: 'Tracking',
       notificationBody: 'Recording your route',

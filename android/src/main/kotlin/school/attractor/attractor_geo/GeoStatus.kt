@@ -77,5 +77,10 @@ object GeoStatus {
         "auth_failed" to config.authFailed,
         "queued_points" to queued,
         "location_services_enabled" to locationEnabled(context),
+        // What the uploader would actually POST to, and how it last got on.
+        // Between them these turn "the queue is not draining" from a question
+        // into an answer — see `GeoTrackingStatus` on the Dart side.
+        "upload_url" to config.url,
+        "last_upload" to config.lastUpload,
     )
 }
