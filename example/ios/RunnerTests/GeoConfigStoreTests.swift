@@ -11,8 +11,8 @@ final class GeoConfigStoreTests: XCTestCase {
     private let foreignKey = "host_app.some_setting"
 
     private let saved: [String: Any] = [
-        "base_url": "https://api.attractor.school",
-        "path": "/v1/tracking/points",
+        "session_id": "consent-42",
+        "url": "https://api.attractor.school/v1/tracking/points",
         "headers": ["Authorization": "Bearer secret"],
         "distance_filter_meters": 20,
         "min_interval_seconds": 10,
@@ -20,6 +20,8 @@ final class GeoConfigStoreTests: XCTestCase {
         "upload_interval_seconds": 60,
         "queue_max_points": 20000,
         "queue_max_age_days": 7,
+        "notification_title": "Tracking",
+        "notification_body": "Recording your route",
     ]
 
     override func setUp() {
@@ -34,7 +36,7 @@ final class GeoConfigStoreTests: XCTestCase {
     }
 
     func testClearForgetsTheCredentials() {
-        config.save(saved)
+        try! config.save(saved)
         XCTAssertEqual(config.headers["Authorization"], "Bearer secret")
 
         config.clear()
@@ -43,7 +45,7 @@ final class GeoConfigStoreTests: XCTestCase {
     }
 
     func testClearForgetsTheSessionAndTheEndpoint() {
-        config.save(saved)
+        try! config.save(saved)
         config.isTracking = true
         config.authFailed = true
 
@@ -52,12 +54,13 @@ final class GeoConfigStoreTests: XCTestCase {
         XCTAssertFalse(config.isConfigured)
         XCTAssertFalse(config.isTracking)
         XCTAssertFalse(config.authFailed)
-        XCTAssertEqual(config.baseUrl, "")
+        XCTAssertEqual(config.sessionId, "")
+        XCTAssertEqual(config.url, "")
     }
 
     func testClearLeavesTheHostAppsOwnDefaultsAlone() {
         UserDefaults.standard.set("keep me", forKey: foreignKey)
-        config.save(saved)
+        try! config.save(saved)
 
         config.clear()
 
@@ -67,7 +70,7 @@ final class GeoConfigStoreTests: XCTestCase {
     }
 
     func testTuningFallsBackToTheDefaultsAfterAClear() {
-        config.save(saved)
+        try! config.save(saved)
 
         config.clear()
 

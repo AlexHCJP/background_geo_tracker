@@ -63,12 +63,17 @@ class GeoTrackingService : Service() {
         // service throws SecurityException when the location permission is
         // missing, so this check has to happen first — and the queue is left
         // untouched, because whatever it already holds still needs uploading.
-        if (!GeoStatus.hasForegroundLocation(this)) {
+        if (!config.isConfigured() ||
+            !GeoStatus.hasBackgroundLocation(this) ||
+            !GeoStatus.locationEnabled(this)
+        ) {
+            isRunning = false
             stopSelf()
             return START_NOT_STICKY
         }
 
         startForeground(NOTIFICATION_ID, buildNotification())
+        isRunning = true
         requestUpdates()
         startDrainLoop()
         UploadWorker.schedule(this, config.uploadIntervalSeconds)
@@ -148,7 +153,7 @@ class GeoTrackingService : Service() {
     }
 
     private fun record(location: Location) {
-        val row = location.toPointRow(this)
+        val row = location.toPointRow(this, config.sessionId)
 
         scope.launch {
             queue.enqueue(row, config.queueMaxPoints, config.queueMaxAgeDays)
@@ -180,6 +185,7 @@ class GeoTrackingService : Service() {
 
     override fun onDestroy() {
         client.removeLocationUpdates(callback)
+        isRunning = false
         // Covers the stops nobody asked for: permission revoked from Settings
         // mid-session, or the OS shutting the service down. An explicit stop
         // reports itself from the plugin as well; a duplicate status is
@@ -195,6 +201,10 @@ class GeoTrackingService : Service() {
         private const val CHANNEL_ID = "attractor_geo_tracking"
         private const val NOTIFICATION_ID = 4711
 
+        @Volatile
+        var isRunning: Boolean = false
+            private set
+
         fun start(context: Context) {
             val intent = Intent(context, GeoTrackingService::class.java)
             ContextCompat.startForegroundService(context, intent)
@@ -209,6 +219,7 @@ class GeoTrackingService : Service() {
 /** The event-channel shape, matching `GeoPoint.fromMap` on the Dart side. */
 fun PointRow.toEventMap(): Map<String, Any?> = mapOf(
     "id" to id,
+    "session_id" to sessionId,
     "lat" to lat,
     "lon" to lon,
     "accuracy" to accuracy,

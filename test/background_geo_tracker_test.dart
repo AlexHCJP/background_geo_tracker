@@ -23,6 +23,7 @@ void main() {
 
   const statusPayload = <Object?, Object?>{
     'is_tracking': true,
+    'collector_running': true,
     'permission': 'always',
     'auth_failed': false,
     'queued_points': 7,
@@ -31,6 +32,7 @@ void main() {
 
   const positionPayload = <Object?, Object?>{
     'id': 'a5f1',
+    'session_id': 'consent-42',
     'lat': 55.751244,
     'lon': 37.618423,
     'accuracy': 12.0,
@@ -64,6 +66,7 @@ void main() {
 
   test('configure forwards the serialized config', () async {
     final config = GeoUploadConfig.standard(
+      sessionId: 'consent-42',
       url: 'https://api.attractor.school/v1/tracking/points',
       headers: const <String, String>{'Authorization': 'Bearer token'},
       notificationTitle: 'Tracking',

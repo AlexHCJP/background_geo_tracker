@@ -18,6 +18,9 @@ class PointQueue(private val dao: PointDao) {
 
     fun oldest(limit: Int): List<PointRow> = dao.oldest(limit)
 
+    fun oldestForSession(sessionId: String, limit: Int): List<PointRow> =
+        dao.oldestForSession(sessionId, limit)
+
     fun drop(ids: List<String>) = dao.deleteByIds(ids)
 
     fun count(): Int = dao.count()

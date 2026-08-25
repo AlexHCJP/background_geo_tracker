@@ -32,8 +32,13 @@ class PointQueueTest {
     @After
     fun tearDown() = db.close()
 
-    private fun row(id: String, atMillis: Long) = PointRow(
+    private fun row(
+        id: String,
+        atMillis: Long,
+        sessionId: String = "consent-42",
+    ) = PointRow(
         id = id,
+        sessionId = sessionId,
         lat = 55.75,
         lon = 37.61,
         accuracy = 10.0,
@@ -59,6 +64,17 @@ class PointQueueTest {
         repeat(5) { queue.enqueue(row("p$it", now + it), 100, 7) }
 
         assertEquals(2, queue.oldest(2).size)
+    }
+
+    @Test
+    fun `session query never returns another session's points`() {
+        queue.enqueue(row("old", now, sessionId = "consent-old"), 100, 7)
+        queue.enqueue(row("new", now + 1, sessionId = "consent-new"), 100, 7)
+
+        assertEquals(
+            listOf("new"),
+            queue.oldestForSession("consent-new", 10).map { it.id },
+        )
     }
 
     @Test
@@ -131,5 +147,6 @@ class PointQueueTest {
         assertEquals(null, stored.heading)
         assertEquals(null, stored.batteryLevel)
         assertEquals(55.75, stored.lat, 1e-9)
+        assertEquals("consent-42", stored.sessionId)
     }
 }

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   GeoUploadConfig standard() => GeoUploadConfig.standard(
+    sessionId: 'consent-42',
     url: 'https://api.attractor.school/v1/tracking/points',
     headers: const <String, String>{'Authorization': 'Bearer token'},
     notificationTitle: 'Tracking',
@@ -22,6 +23,7 @@ void main() {
 
   test('toMap uses the wire keys the native layer reads', () {
     expect(standard().toMap(), <String, Object?>{
+      'session_id': 'consent-42',
       'url': 'https://api.attractor.school/v1/tracking/points',
       'headers': <String, String>{'Authorization': 'Bearer token'},
       'distance_filter_meters': 20,
@@ -33,5 +35,29 @@ void main() {
       'notification_title': 'Tracking',
       'notification_body': 'Recording your route',
     });
+  });
+
+  test('rejects unsafe or nonsensical configurations', () {
+    expect(
+      () => GeoUploadConfig.standard(
+        sessionId: '',
+        url: 'http://api.example.com/points',
+        headers: const <String, String>{},
+        notificationTitle: 'Tracking',
+        notificationBody: 'Recording',
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => GeoUploadConfig.standard(
+        sessionId: 'consent-42',
+        url: 'https://api.example.com/points',
+        headers: const <String, String>{},
+        notificationTitle: 'Tracking',
+        notificationBody: 'Recording',
+        batchSize: 0,
+      ),
+      throwsArgumentError,
+    );
   });
 }

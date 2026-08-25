@@ -89,33 +89,74 @@ class AttractorGeoPlugin :
         when (call.method) {
             "configure" -> {
                 @Suppress("UNCHECKED_CAST")
-                config.save(call.arguments as Map<String, Any?>)
-                result.success(null)
+                val arguments = call.arguments as? Map<String, Any?>
+                if (arguments == null) {
+                    result.error("bad_arguments", "configure expects a map", null)
+                    return
+                }
+                val requestedSession = arguments["session_id"] as? String ?: ""
+                if (config.isTracking && requestedSession != config.sessionId) {
+                    result.error(
+                        "session_active",
+                        "Stop the active tracking session before configuring another one",
+                        null,
+                    )
+                    return
+                }
+                try {
+                    config.save(arguments)
+                    result.success(null)
+                } catch (error: IllegalArgumentException) {
+                    result.error("invalid_config", error.message, null)
+                }
             }
 
             "start" -> {
                 // Starting the service without location permission would
                 // crash it on Android 14+, so refuse here rather than let the
                 // service die silently a moment later.
-                if (!GeoStatus.hasForegroundLocation(context)) {
+                if (!config.isConfigured()) {
                     result.error(
-                        "permission_denied",
-                        "Location permission is required to start tracking",
+                        "not_configured",
+                        "Configure a tracking session before starting it",
+                        null,
+                    )
+                } else if (!GeoStatus.hasBackgroundLocation(context)) {
+                    result.error(
+                        "background_permission_required",
+                        "Always allow location access before starting tracking",
+                        null,
+                    )
+                } else if (!GeoStatus.locationEnabled(context)) {
+                    result.error(
+                        "location_services_disabled",
+                        "Turn on device location services before starting tracking",
                         null,
                     )
                 } else {
-                    config.isTracking = true
-                    GeoTrackingService.start(context)
-                    requestNotificationsIfMissing()
-                    result.success(null)
-                    emitStatus()
+                    try {
+                        config.isTracking = true
+                        GeoTrackingService.start(context)
+                        requestNotificationsIfMissing()
+                        result.success(null)
+                        emitStatus()
+                    } catch (error: RuntimeException) {
+                        config.isTracking = false
+                        result.error(
+                            "start_failed",
+                            error.message ?: "Native location service could not start",
+                            null,
+                        )
+                        emitStatus()
+                    }
                 }
             }
 
             "stop" -> {
                 config.isTracking = false
                 GeoTrackingService.stop(context)
-                UploadWorker.cancel(context)
+                UploadWorker.cancelPeriodic(context)
+                UploadWorker.enqueueNow(context)
                 result.success(null)
                 emitStatus()
             }
@@ -123,7 +164,7 @@ class AttractorGeoPlugin :
             "reset" -> scope.launch {
                 config.isTracking = false
                 GeoTrackingService.stop(context)
-                UploadWorker.cancel(context)
+                UploadWorker.cancelAll(context)
                 withContext(Dispatchers.IO) {
                     PointQueue(GeoDatabase.open(context).points()).clear()
                 }
@@ -142,7 +183,9 @@ class AttractorGeoPlugin :
                 // delivers on the main thread, which is where `result` has to
                 // be called from.
                 OneShotLocation.request(context, timeout) { location ->
-                    result.success(location?.toPointRow(context)?.toEventMap())
+                    result.success(
+                        location?.toPointRow(context, config.sessionId)?.toEventMap()
+                    )
                 }
             }
 
@@ -301,6 +344,21 @@ class AttractorGeoPlugin :
         activity = binding.activity
         activityBinding = binding
         binding.addRequestPermissionsResultListener(this)
+        resumeCollectorIfPossible()
+    }
+
+    /** Restores a desired session after a force-stop followed by a manual open. */
+    private fun resumeCollectorIfPossible() {
+        if (!config.isTracking || GeoTrackingService.isRunning) return
+        if (!config.isConfigured() ||
+            !GeoStatus.hasBackgroundLocation(context) ||
+            !GeoStatus.locationEnabled(context)
+        ) {
+            emitStatus()
+            return
+        }
+        runCatching { GeoTrackingService.start(context) }
+            .onFailure { emitStatus() }
     }
 
     private fun detach() {

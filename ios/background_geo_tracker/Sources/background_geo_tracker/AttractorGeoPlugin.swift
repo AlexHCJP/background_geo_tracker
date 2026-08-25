@@ -38,6 +38,7 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
         registrar.addApplicationDelegate(instance)
 
         AttractorGeoLaunch.wireUploader()
+        AttractorGeoLaunch.resumeIfTracking()
     }
 
     /// Covers the launches that reach a registered plugin: a normal one, and —
@@ -77,17 +78,77 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
                 )
                 return
             }
-            config.save(arguments)
-            result(nil)
+            let requestedSession = arguments["session_id"] as? String ?? ""
+            if config.isTracking && requestedSession != config.sessionId {
+                result(
+                    FlutterError(
+                        code: "session_active",
+                        message: "Stop the active tracking session before configuring another one",
+                        details: nil
+                    )
+                )
+                return
+            }
+            do {
+                try config.save(arguments)
+                result(nil)
+            } catch {
+                result(
+                    FlutterError(
+                        code: "invalid_config",
+                        message: error.localizedDescription,
+                        details: nil
+                    )
+                )
+            }
 
         case "start":
-            GeoTracker.shared.start()
+            guard config.isConfigured else {
+                result(
+                    FlutterError(
+                        code: "not_configured",
+                        message: "Configure a tracking session before starting it",
+                        details: nil
+                    )
+                )
+                return
+            }
+            guard GeoTracker.shared.permissionName() == "always" else {
+                result(
+                    FlutterError(
+                        code: "background_permission_required",
+                        message: "Always allow location access before starting tracking",
+                        details: nil
+                    )
+                )
+                return
+            }
+            guard GeoTracker.shared.locationServicesEnabled() else {
+                result(
+                    FlutterError(
+                        code: "location_services_disabled",
+                        message: "Turn on device location services before starting tracking",
+                        details: nil
+                    )
+                )
+                return
+            }
+            guard GeoTracker.shared.start() else {
+                result(
+                    FlutterError(
+                        code: "start_failed",
+                        message: "Native location manager could not start",
+                        details: nil
+                    )
+                )
+                return
+            }
             Uploader.shared.startPeriodicDrain()
             result(nil)
 
         case "stop":
             GeoTracker.shared.stop()
-            Uploader.shared.stopPeriodicDrain()
+            Uploader.shared.finishAndStop()
             result(nil)
 
         case "reset":

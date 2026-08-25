@@ -34,6 +34,7 @@ void main() {
 
     await geo.configure(
       GeoUploadConfig.standard(
+        sessionId: 'integration-test-session',
         url: 'https://example.invalid/v1/tracking/points',
         headers: const <String, String>{'Authorization': 'Bearer test'},
         notificationTitle: 'Tracking',

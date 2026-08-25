@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.net.URI
 import org.json.JSONObject
 
 /**
@@ -38,7 +39,17 @@ class GeoConfigStore(
         this[key] as? String ?: fallback
 
     fun save(config: Map<String, Any?>) {
+        validate(config)
+        @Suppress("UNCHECKED_CAST")
+        val headers = config["headers"] as Map<String, String>
+        require(
+            securePrefs.edit()
+                .putString("headers", JSONObject(headers).toString())
+                .commit()
+        ) { "secure credential storage is unavailable" }
+
         prefs.edit().apply {
+            putString("session_id", config.string("session_id", ""))
             putString("url", config.string("url", ""))
             putInt(
                 "distance_filter_meters",
@@ -66,12 +77,6 @@ class GeoConfigStore(
             putBoolean("configured", true)
         }.apply()
 
-        @Suppress("UNCHECKED_CAST")
-        val headers = config["headers"] as Map<String, String>
-        securePrefs.edit()
-            .putString("headers", JSONObject(headers).toString())
-            .apply()
-
         // Fresh credentials are the recovery path out of a 401.
         authFailed = false
     }
@@ -92,6 +97,8 @@ class GeoConfigStore(
     }
 
     fun isConfigured(): Boolean = prefs.getBoolean("configured", false)
+
+    val sessionId: String get() = prefs.getString("session_id", "")!!
 
     /**
      * The whole endpoint, as the Dart side wrote it down. Not assembled from
@@ -144,6 +151,45 @@ class GeoConfigStore(
         get() = prefs.getBoolean("permission_requested", false)
         set(value) =
             prefs.edit().putBoolean("permission_requested", value).apply()
+
+    private fun validate(value: Map<String, Any?>) {
+        require(value.string("session_id", "").isNotBlank()) {
+            "session_id must not be empty"
+        }
+        val endpoint = runCatching {
+            URI(value.string("url", "").trim())
+        }.getOrNull()
+        require(
+            endpoint?.scheme == "https" &&
+                !endpoint.host.isNullOrBlank() &&
+                endpoint.rawFragment == null
+        ) { "url must be an absolute HTTPS URL without a fragment" }
+        require(value.int("distance_filter_meters", -1) >= 0) {
+            "distance_filter_meters must be zero or greater"
+        }
+        for (key in listOf(
+            "min_interval_seconds",
+            "batch_size",
+            "upload_interval_seconds",
+            "queue_max_points",
+            "queue_max_age_days",
+        )) {
+            require(value.int(key, 0) > 0) { "$key must be greater than zero" }
+        }
+        @Suppress("UNCHECKED_CAST")
+        val headers = requireNotNull(value["headers"] as? Map<String, String>) {
+            "headers must be a string map"
+        }
+        require(headers.keys.none { it.isBlank() }) {
+            "header names must not be empty"
+        }
+        require(value.string("notification_title", "").isNotBlank()) {
+            "notification_title must not be empty"
+        }
+        require(value.string("notification_body", "").isNotBlank()) {
+            "notification_body must not be empty"
+        }
+    }
 }
 
 /**

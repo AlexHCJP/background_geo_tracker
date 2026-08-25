@@ -11,6 +11,8 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     private let config = GeoConfigStore()
     private var queue: PointQueue? { PointQueue.shared }
 
+    private(set) var isRunning = false
+
     /// Called after each enqueue so the uploader can decide to drain.
     var onQueueGrew: (() -> Void)?
 
@@ -33,11 +35,20 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         return CLLocationManager.authorizationStatus()
     }
 
-    func start() {
+    @discardableResult
+    func start() -> Bool {
+        guard config.isConfigured,
+              !config.sessionId.isEmpty,
+              authorizationStatus == .authorizedAlways,
+              locationServicesEnabled()
+        else {
+            isRunning = false
+            emitStatus()
+            return false
+        }
         config.isTracking = true
         manager.distanceFilter = CLLocationDistance(config.distanceFilterMeters)
-        if authorizationStatus == .authorizedAlways {
-            manager.allowsBackgroundLocationUpdates = true
+        manager.allowsBackgroundLocationUpdates = true
             // The blue bar is optional under `Always` — this is its default,
             // spelled out because setting it to true is what we did before and
             // it is an easy thing to reintroduce by accident.
@@ -50,10 +61,11 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             manager.showsBackgroundLocationIndicator = false
             // The relaunch anchor. Standard updates alone do not bring the app
             // back after the user swipes it away.
-            manager.startMonitoringSignificantLocationChanges()
-        }
+        manager.startMonitoringSignificantLocationChanges()
         manager.startUpdatingLocation()
+        isRunning = true
         emitStatus()
+        return true
     }
 
     func stop() {
@@ -61,6 +73,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         manager.stopUpdatingLocation()
         manager.stopMonitoringSignificantLocationChanges()
         manager.allowsBackgroundLocationUpdates = false
+        isRunning = false
         emitStatus()
     }
 
@@ -101,6 +114,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     func statusMap() -> [String: Any] {
         [
             "is_tracking": config.isTracking,
+            "collector_running": isRunning,
             "permission": permissionName(),
             "auth_failed": config.authFailed,
             "queued_points": queue?.count() ?? 0,
@@ -145,6 +159,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         case .denied, .restricted:
             manager.stopUpdatingLocation()
             manager.stopMonitoringSignificantLocationChanges()
+            isRunning = false
         case .authorizedAlways where config.isTracking:
             start()
         case .authorizedWhenInUse:
@@ -153,7 +168,9 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             // the background on When In Use — which is exactly when iOS shows
             // the blue bar and will not let us hide it.
             manager.allowsBackgroundLocationUpdates = false
+            manager.stopUpdatingLocation()
             manager.stopMonitoringSignificantLocationChanges()
+            isRunning = false
         default:
             break
         }
@@ -171,7 +188,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     // MARK: - Recording
 
     private func record(_ location: CLLocation) {
-        let row = GeoPointRow.from(location)
+        let row = GeoPointRow.from(location, sessionId: config.sessionId)
 
         queue?.enqueue(
             row,
@@ -216,7 +233,11 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         let cached = manager.location
         if let cached,
            -cached.timestamp.timeIntervalSinceNow <= Self.cacheMaxAge {
-            completion(PointJson.encodeOne(GeoPointRow.from(cached)))
+            completion(
+                PointJson.encodeOne(
+                    GeoPointRow.from(cached, sessionId: config.sessionId)
+                )
+            )
             return
         }
 
@@ -225,7 +246,11 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
                 completion(nil)
                 return
             }
-            completion(PointJson.encodeOne(GeoPointRow.from(location)))
+            completion(
+                PointJson.encodeOne(
+                    GeoPointRow.from(location, sessionId: self.config.sessionId)
+                )
+            )
         }
     }
 

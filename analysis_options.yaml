@@ -7,6 +7,13 @@ analyzer:
     - ".test_coverage.dart"
     # Assets
     - "assets/**"
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
   # Enable the following options to enable strong mode.
   language:

@@ -13,9 +13,14 @@ final class PointQueueTests: XCTestCase {
         queue = PointQueue(store: store)
     }
 
-    private func row(_ id: String, at millis: Int64) -> GeoPointRow {
+    private func row(
+        _ id: String,
+        at millis: Int64,
+        sessionId: String = "consent-42"
+    ) -> GeoPointRow {
         GeoPointRow(
             id: id,
+            sessionId: sessionId,
             lat: 55.75,
             lon: 37.61,
             accuracy: 10,
@@ -46,6 +51,24 @@ final class PointQueueTests: XCTestCase {
         }
 
         XCTAssertEqual(queue.oldest(limit: 2).count, 2)
+    }
+
+    func testSessionQueryNeverReturnsAnotherSessionsPoints() {
+        queue.enqueue(
+            row("old", at: now, sessionId: "consent-old"),
+            maxPoints: 100,
+            maxAgeDays: 7
+        )
+        queue.enqueue(
+            row("new", at: now + 1, sessionId: "consent-new"),
+            maxPoints: 100,
+            maxAgeDays: 7
+        )
+
+        XCTAssertEqual(
+            queue.oldest(sessionId: "consent-new", limit: 10).map(\.id),
+            ["new"]
+        )
     }
 
     func testDropDeletesOnlyAcknowledgedPoints() {
@@ -119,5 +142,6 @@ final class PointQueueTests: XCTestCase {
         XCTAssertNil(stored?.heading)
         XCTAssertNil(stored?.batteryLevel)
         XCTAssertEqual(stored?.lat, 55.75)
+        XCTAssertEqual(stored?.sessionId, "consent-42")
     }
 }

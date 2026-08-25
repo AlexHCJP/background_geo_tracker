@@ -1,3 +1,21 @@
+## 0.5.1
+
+* Every queued and uploaded point now carries a required `session_id`, so an
+  offline tail cannot be attributed to a later sharing session.
+* Both platforms refuse to start without a valid HTTPS configuration,
+  background/Always permission, and enabled location services.
+* Status now separates persisted user intent (`isTracking`) from the native
+  collector's current runtime state (`collectorRunning`).
+* Stopping makes a final best-effort drain; sign-out/reset still cancels all
+  work and clears credentials and points.
+* Android restores a desired session after the user manually reopens a
+  force-stopped app. Boot restore is permission-checked and the receiver is no
+  longer exported.
+* iOS automatically resumes on ordinary plugin registration; the host launch
+  hook remains required for location-triggered launches with no Flutter UI.
+* iOS queue storage uses Data Protection, is excluded from backup, and safely
+  discards unattributable rows from older schemas.
+
 ## 0.5.0
 
 * **Breaking: `GeoUploadConfig` takes one `url`, not `baseUrl` and `path`.**

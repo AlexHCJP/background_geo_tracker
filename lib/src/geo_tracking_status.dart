@@ -7,6 +7,7 @@ class GeoTrackingStatus {
   /// report a reassuring default for the one thing that is actually wrong.
   const GeoTrackingStatus({
     required this.isTracking,
+    required this.collectorRunning,
     required this.permission,
     required this.authFailed,
     required this.queuedPoints,
@@ -25,6 +26,7 @@ class GeoTrackingStatus {
   factory GeoTrackingStatus.fromMap(Map<Object?, Object?> map) =>
       GeoTrackingStatus(
         isTracking: map['is_tracking']! as bool,
+        collectorRunning: map['collector_running'] as bool? ?? false,
         permission: geoPermissionFromName(map['permission']! as String),
         authFailed: map['auth_failed']! as bool,
         queuedPoints: map['queued_points']! as int,
@@ -35,6 +37,11 @@ class GeoTrackingStatus {
 
   /// Whether a tracking session is currently running.
   final bool isTracking;
+
+  /// Whether the native collector is alive right now. [isTracking] is the
+  /// persisted user intent that survives process death; this is the runtime
+  /// fact, so the UI can distinguish “will resume” from “currently sending”.
+  final bool collectorRunning;
 
   /// What the OS currently grants. Only [GeoPermission.always] keeps a session
   /// alive once the app is backgrounded.

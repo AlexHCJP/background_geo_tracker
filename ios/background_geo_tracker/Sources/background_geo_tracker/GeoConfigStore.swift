@@ -9,7 +9,21 @@ final class GeoConfigStore {
 
     private func key(_ name: String) -> String { Self.prefix + name }
 
-    func save(_ config: [String: Any]) {
+    func save(_ config: [String: Any]) throws {
+        try validate(config)
+        let headers = config["headers"] as? [String: String] ?? [:]
+        guard let data = try? JSONSerialization.data(withJSONObject: headers),
+              let json = String(data: data, encoding: .utf8),
+              Keychain.set(json, account: Self.headersAccount)
+        else {
+            throw GeoConfigError.invalid(
+                "secure credential storage is unavailable"
+            )
+        }
+
+        defaults.set(
+            config["session_id"] as? String ?? "", forKey: key("session_id")
+        )
         defaults.set(config["url"] as? String ?? "", forKey: key("url"))
         defaults.set(
             config["distance_filter_meters"] as? Int ?? 20,
@@ -36,12 +50,6 @@ final class GeoConfigStore {
         )
         defaults.set(true, forKey: key("configured"))
 
-        let headers = config["headers"] as? [String: String] ?? [:]
-        if let data = try? JSONSerialization.data(withJSONObject: headers),
-           let json = String(data: data, encoding: .utf8) {
-            Keychain.set(json, account: Self.headersAccount)
-        }
-
         // Fresh credentials are the recovery path out of a 401.
         authFailed = false
     }
@@ -59,6 +67,7 @@ final class GeoConfigStore {
     }
 
     private static let ownedKeys = [
+        "session_id",
         "url",
         "distance_filter_meters",
         "min_interval_seconds",
@@ -73,6 +82,10 @@ final class GeoConfigStore {
     ]
 
     var isConfigured: Bool { defaults.bool(forKey: key("configured")) }
+
+    var sessionId: String {
+        defaults.string(forKey: key("session_id")) ?? ""
+    }
 
     /// The whole endpoint, as the Dart side wrote it down. Not assembled from
     /// parts here — see `GeoUploadConfig.url`.
@@ -120,5 +133,50 @@ final class GeoConfigStore {
     var lastUpload: String {
         get { defaults.string(forKey: key("last_upload")) ?? "never" }
         set { defaults.set(newValue, forKey: key("last_upload")) }
+    }
+
+    private func validate(_ value: [String: Any]) throws {
+        guard let sessionId = value["session_id"] as? String,
+              !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { throw GeoConfigError.invalid("session_id must not be empty") }
+
+        guard let rawUrl = value["url"] as? String,
+              let components = URLComponents(string: rawUrl),
+              components.scheme == "https",
+              !(components.host ?? "").isEmpty,
+              components.fragment == nil
+        else {
+            throw GeoConfigError.invalid(
+                "url must be an absolute HTTPS URL without a fragment"
+            )
+        }
+        guard let distance = value["distance_filter_meters"] as? Int,
+              distance >= 0
+        else {
+            throw GeoConfigError.invalid(
+                "distance_filter_meters must be zero or greater"
+            )
+        }
+        for key in [
+            "min_interval_seconds", "batch_size", "upload_interval_seconds",
+            "queue_max_points", "queue_max_age_days",
+        ] {
+            guard let number = value[key] as? Int, number > 0 else {
+                throw GeoConfigError.invalid("\(key) must be greater than zero")
+            }
+        }
+        guard let headers = value["headers"] as? [String: String],
+              headers.keys.allSatisfy({ !$0.trimmingCharacters(
+                in: .whitespacesAndNewlines
+              ).isEmpty })
+        else { throw GeoConfigError.invalid("headers must be a string map") }
+    }
+}
+
+private enum GeoConfigError: LocalizedError {
+    case invalid(String)
+
+    var errorDescription: String? {
+        switch self { case .invalid(let message): return message }
     }
 }

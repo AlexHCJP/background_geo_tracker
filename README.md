@@ -6,6 +6,10 @@ The native layer is self-sufficient: it collects points and uploads them
 without a live Dart isolate. A session keeps running while the app is
 backgrounded or evicted from memory, and resumes by itself afterwards.
 
+This repository is a maintained fork of
+[`AlexHCJP/background_geo_tracker`](https://github.com/AlexHCJP/background_geo_tracker).
+The original MIT copyright and license are preserved.
+
 - [Install](#install)
 - [iOS setup](#ios-setup)
 - [Android setup](#android-setup)
@@ -20,7 +24,10 @@ backgrounded or evicted from memory, and resumes by itself afterwards.
 
 ```yaml
 dependencies:
-  background_geo_tracker: ^0.3.0
+  background_geo_tracker:
+    git:
+      url: https://github.com/tahayildirm/background_geo_tracker.git
+      ref: v0.5.1
 ```
 
 Platform floors, both enforced by the package:
@@ -187,6 +194,7 @@ await geo.requestPermission();
 // 2. URL, credentials and policy. Safe to call repeatedly.
 await geo.configure(
   GeoUploadConfig.standard(
+    sessionId: consentId,
     url: 'https://api.example.com/v1/tracking/points',
     headers: {'Authorization': 'Bearer $token'},
     notificationTitle: 'Tracking',            // Android notification copy;
@@ -194,8 +202,7 @@ await geo.configure(
   ),
 );
 
-// 3. Go. Throws PlatformException('permission_denied') on Android when the
-//    location permission is missing.
+// 3. Go. Both platforms require “Always” location authorization.
 await geo.start();
 
 // …later
@@ -204,9 +211,9 @@ await geo.stop();
 
 ### Signing out
 
-`stop()` ends the session and keeps the queue — the points were collected with
-consent and still belong to the account that recorded them, so they go out on
-the next session.
+`stop()` ends collection and makes one final upload attempt. Any offline tail
+stays in the queue with its own `session_id`; it can never be attributed to a
+later sharing session on the same device.
 
 Signing out is the other case, and `stop()` is **not** enough for it:
 
@@ -287,6 +294,7 @@ fresh token and the queue drains; nothing collected in the meantime is lost.
 if (status.authFailed) {
   await geo.configure(
     GeoUploadConfig.standard(
+      sessionId: sessionId,
       url: url,
       headers: {'Authorization': 'Bearer $freshToken'},
       notificationTitle: title,
@@ -386,7 +394,8 @@ monitoring will wake the app again. Do not design a feature that depends on it.
 
 ## Tuning
 
-`GeoUploadConfig.standard(...)` fills in the tuned defaults below. Use the full
+`GeoUploadConfig.standard(...)` fills in the tuned defaults below. `sessionId`
+is required and is written into every queued point. Use the full
 constructor to override them — every field is required there, so an override
 states the whole policy rather than silently inheriting half of it.
 
@@ -459,10 +468,9 @@ serialisation, queue eviction and emptying, and what a credential reset does
 and does not forget. Everything that actually distinguishes this package —
 background
 survival, relaunch after eviction, real GPS — is **not** unit-testable and has
-to be checked by hand on a physical device. `example/` is the harness for that;
-the scenario checklists live in
-`docs/superpowers/plans/2026-08-02-attractor-geo-dart-and-android.md` and
-`…-ios.md`.
+to be checked by hand on a physical device. `example/` is the harness for
+testing backgrounding, process eviction, device reboot, offline queue recovery,
+permission changes and token renewal.
 
 An emulator or simulator will not do: neither reproduces Doze, memory
 eviction, or a moving GPS fix.

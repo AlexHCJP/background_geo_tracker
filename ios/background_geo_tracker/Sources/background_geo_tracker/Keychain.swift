@@ -4,9 +4,10 @@ import Security
 /// Just enough Keychain for one string: the upload headers carry a bearer
 /// token, which does not belong in UserDefaults.
 enum Keychain {
-    private static let service = "school.attractor.attractor_geo"
+    private static let service = "com.okulmobil.background_geo_tracker"
 
-    static func set(_ value: String, account: String) {
+    @discardableResult
+    static func set(_ value: String, account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -20,7 +21,7 @@ enum Keychain {
         // while the device is locked — but it must never leave the device.
         insert[kSecAttrAccessible as String] =
             kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(insert as CFDictionary, nil)
+        return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
 
     static func delete(account: String) {

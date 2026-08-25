@@ -17,6 +17,7 @@ class GeoDatabase private constructor(context: Context, name: String?) :
             """
             CREATE TABLE $TABLE (
                 id TEXT PRIMARY KEY NOT NULL,
+                session_id TEXT NOT NULL,
                 lat REAL NOT NULL,
                 lon REAL NOT NULL,
                 accuracy REAL NOT NULL,
@@ -46,7 +47,7 @@ class GeoDatabase private constructor(context: Context, name: String?) :
 
     companion object {
         const val TABLE = "points"
-        private const val VERSION = 1
+        private const val VERSION = 2
         private const val FILE_NAME = "attractor_geo.db"
 
         @Volatile

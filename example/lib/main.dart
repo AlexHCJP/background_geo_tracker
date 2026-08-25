@@ -48,6 +48,7 @@ class _HarnessScreenState extends State<HarnessScreen> {
   Future<void> _configure() async {
     await _geo.configure(
       GeoUploadConfig.standard(
+        sessionId: 'example-session',
         url: _url,
         headers: const <String, String>{'Authorization': 'Bearer harness'},
         notificationTitle: 'Attractor tracking',
@@ -102,6 +103,7 @@ class _HarnessScreenState extends State<HarnessScreen> {
             ListTile(
               title: Text(
                 'tracking: ${status.isTracking} · '
+                'collector: ${status.collectorRunning} · '
                 'permission: ${status.permission.name}',
               ),
               subtitle: Text(

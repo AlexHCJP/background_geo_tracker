@@ -25,6 +25,7 @@ object PointJson {
 
     fun encodeOne(point: PointRow): JSONObject = JSONObject().apply {
         put("id", point.id)
+        put("session_id", point.sessionId)
         put("lat", point.lat)
         put("lon", point.lon)
         put("accuracy", point.accuracy)

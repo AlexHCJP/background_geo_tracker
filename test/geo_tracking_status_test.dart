@@ -5,6 +5,7 @@ void main() {
   test('fromMap decodes a tracking status', () {
     final status = GeoTrackingStatus.fromMap(const <Object?, Object?>{
       'is_tracking': true,
+      'collector_running': true,
       'permission': 'always',
       'auth_failed': false,
       'queued_points': 42,
@@ -12,6 +13,7 @@ void main() {
     });
 
     expect(status.isTracking, isTrue);
+    expect(status.collectorRunning, isTrue);
     expect(status.permission, GeoPermission.always);
     expect(status.authFailed, isFalse);
     expect(status.queuedPoints, 42);

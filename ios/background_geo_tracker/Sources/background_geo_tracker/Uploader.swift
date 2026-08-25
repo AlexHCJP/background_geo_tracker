@@ -16,6 +16,7 @@ final class Uploader {
     private var draining = false
     private var attempt = 0
     private var timer: DispatchSourceTimer?
+    private var stopAfterDrain = false
 
     /// When the next attempt is allowed after a failure. Only touched on
     /// [serial].
@@ -49,10 +50,13 @@ final class Uploader {
     /// fresh interval on top — while the app is open and on a network, which
     /// is the best moment it will get — is the wrong way round.
     func startPeriodicDrain() {
-        if timer == nil {
+        serial.async { [weak self] in
+            guard let self else { return }
+            self.stopAfterDrain = false
+            if self.timer == nil {
             // A zero interval would spin the timer flat out; the floor keeps a
             // bad config from turning into a battery fire.
-            let interval = max(1, config.uploadIntervalSeconds)
+            let interval = max(1, self.config.uploadIntervalSeconds)
             let timer = DispatchSource.makeTimerSource(queue: serial)
             timer.schedule(
                 deadline: .now() + .seconds(interval),
@@ -62,14 +66,26 @@ final class Uploader {
                 self?.drainIfNeeded(force: true)
             }
             timer.resume()
-            self.timer = timer
+                self.timer = timer
+            }
+            self.drainIfNeededOnSerial(force: true)
         }
-        drainIfNeeded(force: true)
     }
 
     func stopPeriodicDrain() {
-        timer?.cancel()
-        timer = nil
+        serial.async { [weak self] in self?.stopTimerOnSerial() }
+    }
+
+    /// Stops periodic work but makes one last attempt to empty the queue. A
+    /// network failure leaves the session-tagged rows safely on disk and does
+    /// not start an endless retry loop after the user ended sharing.
+    func finishAndStop() {
+        serial.async { [weak self] in
+            guard let self else { return }
+            self.stopAfterDrain = true
+            self.stopTimerOnSerial()
+            self.drainIfNeededOnSerial(force: true)
+        }
     }
 
     /// `force` bypasses the batch-size threshold — used by the periodic timer
@@ -77,6 +93,11 @@ final class Uploader {
     func drainIfNeeded(force: Bool) {
         serial.async { [weak self] in
             guard let self else { return }
+            self.drainIfNeededOnSerial(force: force)
+        }
+    }
+
+    private func drainIfNeededOnSerial(force: Bool) {
             // Each guard below ends a drain, and each used to end it in
             // silence. A queue that grows while the collector reports itself
             // healthy is the symptom of every one of them, so the reason has
@@ -117,7 +138,11 @@ final class Uploader {
             }
             self.draining = true
             self.sendNextBatch()
-        }
+    }
+
+    private func stopTimerOnSerial() {
+        timer?.cancel()
+        timer = nil
     }
 
     private func sendNextBatch() {
@@ -126,7 +151,10 @@ final class Uploader {
             return
         }
 
-        let batch = queue.oldest(limit: config.batchSize)
+        let batch = queue.oldest(
+            sessionId: config.sessionId,
+            limit: config.batchSize
+        )
         guard !batch.isEmpty else {
             draining = false
             attempt = 0
@@ -212,6 +240,11 @@ final class Uploader {
             GeoEventBus.emitStatus(GeoTracker.shared.statusMap())
 
         case .retry:
+            if stopAfterDrain {
+                draining = false
+                notBefore = nil
+                return
+            }
             let delay = UploadPolicy.backoffSeconds(attempt: attempt)
             attempt += 1
             draining = false
