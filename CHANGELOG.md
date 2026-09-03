@@ -14,8 +14,6 @@
 * README получил раздел о том, как собрать конфигурацию под реальное время, и
   что это стоит по батарее, запросам и дрожанию неподвижного маркера.
 
----
-
 ## 0.8.0
 
 * **`sendAfterPoints` отделён от `batchSize`.** Одно число отвечало на два
@@ -41,8 +39,6 @@
 * Статусная строка `waiting for a sweep — n/m` на iOS теперь показывает порог, а
   не размер батча: раньше она называла число, которое к решению уже не имело
   отношения.
-
----
 
 ## 0.7.0
 
@@ -85,8 +81,6 @@
 * Не делается и не планируется: кнопки-действия, свой layout, largeIcon.
   Кнопку некому обслужить — Dart-изолята в этот момент нет.
 
----
-
 ## 0.6.0
 
 * **Коллектор гасит GPS, когда устройство стоит.** Простояв
@@ -117,8 +111,6 @@
 * Машина состояний работает только под `Always`: под `whenInUse` выключенный
   GPS будить некому, поэтому там коллектор ведёт себя как раньше. Растяжение
   фильтра работает на любой авторизации.
-
----
 
 ## 0.5.0
 
@@ -152,8 +144,6 @@
   never covered, so an empty URL took the drain down with nothing to show for
   it. Parsed up front now, and recorded as `lastUpload`.
 
----
-
 ## 0.4.1
 
 * **iOS: a session comes back after a reboot again.** The relaunch path ran
@@ -172,8 +162,6 @@
   the README, which until now said no `AppDelegate` changes were needed.
 * The collector's "a point arrived" hook onto the uploader moved next to the
   resume, so both ways of bringing the native stack up wire it identically.
-
----
 
 ## 0.4.0
 
