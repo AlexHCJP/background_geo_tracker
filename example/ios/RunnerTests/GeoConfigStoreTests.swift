@@ -11,8 +11,7 @@ final class GeoConfigStoreTests: XCTestCase {
     private let foreignKey = "host_app.some_setting"
 
     private let saved: [String: Any] = [
-        "base_url": "https://api.attractor.school",
-        "path": "/v1/tracking/points",
+        "url": "https://api.attractor.school/v1/tracking/points",
         "headers": ["Authorization": "Bearer secret"],
         "distance_filter_meters": 20,
         "min_interval_seconds": 10,
@@ -52,7 +51,7 @@ final class GeoConfigStoreTests: XCTestCase {
         XCTAssertFalse(config.isConfigured)
         XCTAssertFalse(config.isTracking)
         XCTAssertFalse(config.authFailed)
-        XCTAssertEqual(config.baseUrl, "")
+        XCTAssertEqual(config.url, "")
     }
 
     func testClearLeavesTheHostAppsOwnDefaultsAlone() {
