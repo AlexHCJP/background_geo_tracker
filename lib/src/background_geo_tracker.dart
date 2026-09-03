@@ -1,4 +1,5 @@
 import 'package:background_geo_tracker/src/geo_channel.dart';
+import 'package:background_geo_tracker/src/geo_log_entry.dart';
 import 'package:background_geo_tracker/src/geo_permission.dart';
 import 'package:background_geo_tracker/src/geo_point.dart';
 import 'package:background_geo_tracker/src/geo_tracking_status.dart';
@@ -104,9 +105,53 @@ class BackgroundGeoTracker {
   }
 
   /// Opens this app's page in the system settings. The only way out of
-  /// [GeoPermission.permanentlyDenied], where no prompt can be shown any more.
+  /// [GeoPermission.permanentlyDenied], where no prompt can be shown any more,
+  /// and the only way to grant background location on Android 11 and later —
+  /// which is what `GeoTrackingStatus.needsBackgroundRationale` is asking the
+  /// app to explain before it calls this.
   Future<void> openSystemSettings() =>
       _methods.invokeMethod<void>('openSystemSettings');
+
+  /// Opens Android's battery-optimisation list, where the user can exempt this
+  /// app from Doze. See `GeoTrackingStatus.ignoringBatteryOptimizations`.
+  ///
+  /// The list, deliberately, rather than the one-tap "allow" dialog: that one
+  /// needs the `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission, which Play
+  /// review treats as something to justify — and this package would be
+  /// declaring it on behalf of every app that depends on it.
+  ///
+  /// Does nothing on iOS, which has no such exemption to grant.
+  Future<void> openBatteryOptimizationSettings() =>
+      _methods.invokeMethod<void>('openBatteryOptimizationSettings');
+
+  /// Reads what the native side wrote while nothing was watching, oldest
+  /// first, without deleting any of it.
+  ///
+  /// The native log is an outbox rather than an archive: it holds entries only
+  /// until something drains them, and the archive is wherever the app logs
+  /// them. Reading and acknowledging are two calls on purpose — a single
+  /// `drain` would lose exactly the entries it exists to deliver if the caller
+  /// died between receiving them and recording them. Acknowledge with
+  /// [dropLog] once they are somewhere they cannot be lost.
+  Future<List<GeoLogEntry>> readLog({int limit = 500}) async {
+    final entries = await _methods.invokeListMethod<Object?>(
+      'readLog',
+      <String, Object?>{'limit': limit},
+    );
+    return (entries ?? const <Object?>[])
+        .map((e) => GeoLogEntry.fromMap(e! as Map<Object?, Object?>))
+        .toList();
+  }
+
+  /// Deletes every entry up to and including [untilId].
+  ///
+  /// Bounded by the cursor rather than emptying the log, because the collector
+  /// goes on writing while the drain runs and those entries have been seen by
+  /// nobody.
+  Future<void> dropLog({required int untilId}) => _methods.invokeMethod<void>(
+    'dropLog',
+    <String, Object?>{'until_id': untilId},
+  );
 
   /// Live points, for drawing a map or a debug readout. Points are uploaded
   /// natively whether or not anyone listens here.

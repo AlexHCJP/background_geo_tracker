@@ -18,10 +18,19 @@ final class UploadPolicyTests: XCTestCase {
         XCTAssertEqual(UploadPolicy.classify(429), .retry)
     }
 
-    func testOtherClientErrorsArePoisoned() {
-        XCTAssertEqual(UploadPolicy.classify(400), .poisoned)
-        XCTAssertEqual(UploadPolicy.classify(403), .poisoned)
-        XCTAssertEqual(UploadPolicy.classify(422), .poisoned)
+    func testOtherClientErrorsAreDeferredRatherThanDropped() {
+        // Used to be `.poisoned`, which deleted the batch. At batchSize 50
+        // that meant one bad point taking forty-nine good ones with it, and
+        // the only trace was a line in the status.
+        XCTAssertEqual(UploadPolicy.classify(400), .deferred)
+        XCTAssertEqual(UploadPolicy.classify(403), .deferred)
+        XCTAssertEqual(UploadPolicy.classify(422), .deferred)
+    }
+
+    func testDeferWindowIsLongEnoughToBeWorthWaitingOut() {
+        // A permanently rejected batch costs one request per window until the
+        // queue's own ceilings evict it, so the window is what bounds that.
+        XCTAssertGreaterThanOrEqual(UploadPolicy.deferWindowMillis, 60_000)
     }
 
     func testServerErrorsAreRetried() {

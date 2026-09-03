@@ -78,10 +78,33 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
                 return
             }
             config.save(arguments)
+            GeoLogStore.shared?.write(
+                atMillis: Int64(Date().timeIntervalSince1970 * 1000),
+                level: "info",
+                event: "config.saved",
+                // The URL only. `config.headers` carries a bearer token and
+                // must never reach the log in any form.
+                message: "url=\(config.url)"
+            )
             result(nil)
 
         case "start":
-            GeoTracker.shared.start()
+            // Refused rather than opened as a session that cannot collect —
+            // the same answer, with the same code, that Android has always
+            // given here. `GeoAutoSession` reads a started session as reason
+            // to stop evaluating, so a session opened on no permission is one
+            // the app never reconsiders.
+            guard GeoTracker.shared.start() else {
+                result(
+                    FlutterError(
+                        code: "permission_denied",
+                        message:
+                            "Location permission is required to start tracking",
+                        details: nil
+                    )
+                )
+                return
+            }
             Uploader.shared.startPeriodicDrain()
             result(nil)
 
@@ -97,6 +120,9 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
             // publishes the fresh status.
             Uploader.shared.reset()
             PointQueue.shared?.clear()
+            // The entries carry coordinates, and those belong to whoever
+            // recorded them.
+            GeoLogStore.shared?.clear()
             config.clear()
             GeoTracker.shared.stop()
             result(nil)
@@ -121,6 +147,35 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
             // stream via `locationManagerDidChangeAuthorization`.
             GeoTracker.shared.requestNextPermission()
             result(GeoTracker.shared.permissionName())
+
+        case "readLog":
+            let limit = (call.arguments as? [String: Any])?["limit"] as? Int ?? 500
+            result(
+                (GeoLogStore.shared?.read(limit: limit) ?? []).map {
+                    [
+                        "id": $0.id,
+                        "at_millis": $0.atMillis,
+                        "level": $0.level,
+                        "event": $0.event,
+                        "message": $0.message,
+                    ]
+                }
+            )
+
+        case "dropLog":
+            // NSNumber, not Int: an autoincrement id outgrows what the codec
+            // hands over as a plain Int on a 32-bit boundary.
+            let untilId = ((call.arguments as? [String: Any])?["until_id"]
+                as? NSNumber)?.int64Value ?? 0
+            GeoLogStore.shared?.drop(untilId: untilId)
+            result(nil)
+
+        // Android's, and a no-op here rather than notImplemented: the app
+        // calls whatever the status suggests, and `ignoring_battery_
+        // optimizations` is always true on iOS, so nothing should ever reach
+        // this. An error for a call that cannot happen is noise in a log.
+        case "openBatteryOptimizationSettings":
+            result(nil)
 
         case "openSystemSettings":
             if let url = URL(string: UIApplication.openSettingsURLString) {
