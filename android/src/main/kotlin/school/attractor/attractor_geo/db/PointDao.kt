@@ -28,13 +28,41 @@ class PointDao(private val helper: SQLiteOpenHelper) {
         )
     }
 
-    fun oldest(limit: Int): List<PointRow> {
+    /**
+     * The oldest points that are due, oldest first.
+     *
+     * The deferral filter is not an optimisation. Both uploaders drain in a
+     * loop until this returns empty, so a stood-down batch that kept coming
+     * back would spin that loop forever on the same rows.
+     */
+    fun oldest(limit: Int, nowMillis: Long): List<PointRow> {
         val cursor = helper.readableDatabase.rawQuery(
             "SELECT * FROM ${GeoDatabase.TABLE} " +
+                "WHERE deferred_until_millis <= ? " +
                 "ORDER BY recorded_at_millis ASC LIMIT ?",
-            arrayOf(limit.toString()),
+            arrayOf(nowMillis.toString(), limit.toString()),
         )
         return cursor.use { it.readAll() }
+    }
+
+    /**
+     * Stands the given points down until [untilMillis].
+     *
+     * Overwrites rather than accumulates: a batch refused twice waits one
+     * window from the second refusal, not two from the first.
+     */
+    fun defer(ids: List<String>, untilMillis: Long) {
+        if (ids.isEmpty()) return
+        val placeholders = ids.joinToString(",") { "?" }
+        val values = ContentValues().apply {
+            put("deferred_until_millis", untilMillis)
+        }
+        helper.writableDatabase.update(
+            GeoDatabase.TABLE,
+            values,
+            "id IN ($placeholders)",
+            ids.toTypedArray(),
+        )
     }
 
     fun deleteByIds(ids: List<String>) {

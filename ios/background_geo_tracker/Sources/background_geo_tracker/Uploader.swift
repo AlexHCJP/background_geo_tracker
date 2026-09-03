@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import UIKit
 
 /// Drains the queue in batches. Runs in-process: while a session is active
@@ -16,6 +17,13 @@ final class Uploader {
     private var draining = false
     private var attempt = 0
     private var timer: DispatchSourceTimer?
+
+    /// Wakes the drain the moment a network comes back.
+    ///
+    /// iOS has nothing equivalent to Android's job constraint, so without this
+    /// a phone coming out of the underground waits out the rest of the sweep
+    /// interval with a full queue and a working connection.
+    private var networks: NWPathMonitor?
 
     /// When the next attempt is allowed after a failure. Only touched on
     /// [serial].
@@ -63,6 +71,22 @@ final class Uploader {
             }
             timer.resume()
             self.timer = timer
+
+            // Same lifetime as the sweep, deliberately: a monitor outliving
+            // the session would wake a drain for a session that is over.
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { [weak self] path in
+                guard path.status == .satisfied else { return }
+                GeoLogStore.shared?.write(
+                    atMillis: Int64(Date().timeIntervalSince1970 * 1000),
+                    level: "info",
+                    event: "connectivity.available",
+                    message: "queue depth=\(PointQueue.shared?.count() ?? 0)"
+                )
+                self?.drainIfNeeded(force: true)
+            }
+            monitor.start(queue: serial)
+            networks = monitor
         }
         drainIfNeeded(force: true)
     }
@@ -70,10 +94,12 @@ final class Uploader {
     func stopPeriodicDrain() {
         timer?.cancel()
         timer = nil
+        networks?.cancel()
+        networks = nil
     }
 
-    /// `force` bypasses the batch-size threshold — used by the periodic timer
-    /// so a half-full batch still goes out.
+    /// `force` bypasses the send threshold — used by the periodic timer so a
+    /// half-full batch still goes out.
     func drainIfNeeded(force: Bool) {
         serial.async { [weak self] in
             guard let self else { return }
@@ -101,7 +127,10 @@ final class Uploader {
             guard UploadPolicy.mayAttempt(
                 now: Date(), notBefore: self.notBefore
             ) else { return }
-            guard force || queue.count() >= self.config.batchSize else {
+            // The threshold, not the batch size: `sendNextBatch` still takes
+            // `batchSize` points, so a low threshold buys freshness without
+            // making a backlog leave one point per round trip.
+            guard force || queue.count() >= self.config.sendAfterPoints else {
                 // Only while nothing has ever been sent. This is the ordinary
                 // state between sweeps and it arrives with every point, so
                 // writing it unconditionally would bury the outcome of the
@@ -111,7 +140,7 @@ final class Uploader {
                 // alone cannot be told from one that is broken.
                 if self.config.lastUpload == "never" {
                     self.config.lastUpload =
-                        "waiting for a sweep — \(queue.count())/\(self.config.batchSize)"
+                        "waiting for a sweep — \(queue.count())/\(self.config.sendAfterPoints)"
                 }
                 return
             }
@@ -126,7 +155,10 @@ final class Uploader {
             return
         }
 
-        let batch = queue.oldest(limit: config.batchSize)
+        let batch = queue.oldest(
+            limit: config.batchSize,
+            nowMillis: Int64(Date().timeIntervalSince1970 * 1000)
+        )
         guard !batch.isEmpty else {
             draining = false
             attempt = 0
@@ -137,12 +169,25 @@ final class Uploader {
             // The one failure with no network in it and no way to notice from
             // outside: the collector goes on filling a queue that can never be
             // posted anywhere. Recorded so the status says so.
-            config.lastUpload = config.url.isEmpty
+            let reason = config.url.isEmpty
                 ? "no url — never configured"
                 : "bad url: \(config.url)"
+            config.lastUpload = reason
+            GeoLogStore.shared?.write(
+                atMillis: Int64(Date().timeIntervalSince1970 * 1000),
+                level: "warning", event: "upload.giveup", message: reason
+            )
             draining = false
             return
         }
+
+        let startedAt = Date()
+        GeoLogStore.shared?.write(
+            atMillis: Int64(startedAt.timeIntervalSince1970 * 1000),
+            level: "info",
+            event: "upload.attempt",
+            message: "\(batch.count) points → \(config.url)"
+        )
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -160,19 +205,26 @@ final class Uploader {
             task = .invalid
         }
 
-        session.dataTask(with: request) { [weak self] _, response, error in
+        session.dataTask(with: request) { [weak self] data, response, error in
             if task != .invalid {
                 UIApplication.shared.endBackgroundTask(task)
             }
             guard let self else { return }
             self.serial.async {
-                self.handle(response: response, error: error, batch: batch)
+                self.handle(
+                    data: data, response: response, error: error,
+                    batch: batch, startedAt: startedAt
+                )
             }
         }.resume()
     }
 
     private func handle(
-        response: URLResponse?, error: Error?, batch: [GeoPointRow]
+        data: Data?,
+        response: URLResponse?,
+        error: Error?,
+        batch: [GeoPointRow],
+        startedAt: Date
     ) {
         let outcome: UploadOutcome
         if let error {
@@ -188,6 +240,23 @@ final class Uploader {
             config.lastUpload = "no response"
         }
 
+        let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+        // Body only on a non-2xx, and truncated: it is what turns "http 422"
+        // into "points.bad_coordinates". A 2xx body is noise, and any body at
+        // all is data from the server.
+        let detail = outcome == .success
+            ? ""
+            : " " + String(
+                (data.flatMap { String(data: $0, encoding: .utf8) } ?? "")
+                    .prefix(500)
+            )
+        GeoLogStore.shared?.write(
+            atMillis: Int64(Date().timeIntervalSince1970 * 1000),
+            level: outcome == .success ? "info" : "warning",
+            event: "upload.result",
+            message: "\(config.lastUpload) in \(elapsed)ms \(outcome)\(detail)"
+        )
+
         switch outcome {
         case .success:
             queue?.drop(ids: batch.map(\.id))
@@ -195,10 +264,23 @@ final class Uploader {
             notBefore = nil
             sendNextBatch()
 
-        // Dropping the batch is deliberate: a permanently rejected batch would
-        // otherwise retry forever and block every point behind it.
-        case .poisoned:
-            queue?.drop(ids: batch.map(\.id))
+        // Stood down rather than deleted. The blocking this used to prevent is
+        // real — the queue is read from the head, so a batch the backend never
+        // accepts would be re-read forever — but the queue already bounds
+        // itself by rows and by age, so nothing has to be thrown away.
+        case .deferred:
+            let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+            queue?.defer(
+                ids: batch.map(\.id),
+                untilMillis: nowMillis + UploadPolicy.deferWindowMillis
+            )
+            GeoLogStore.shared?.write(
+                atMillis: nowMillis,
+                level: "warning",
+                event: "upload.deferred",
+                message: "\(batch.count) points stood down for "
+                    + "\(UploadPolicy.deferWindowMillis / 60_000)min"
+            )
             attempt = 0
             notBefore = nil
             sendNextBatch()

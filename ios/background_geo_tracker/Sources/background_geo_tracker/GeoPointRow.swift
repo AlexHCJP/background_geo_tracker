@@ -41,6 +41,27 @@ struct GeoPointRow {
         )
     }
 
+    /// The same fix, placed where the filter says the device actually is.
+    ///
+    /// Only the three the smoother has an opinion about. `speed`, `heading`
+    /// and `isMock` stay exactly as the OS reported them: the filter models
+    /// position and nothing else, and a smoothed coordinate carrying a
+    /// recomputed speed would be inventing a reading rather than cleaning one.
+    func movedTo(lat: Double, lon: Double, accuracy: Double) -> GeoPointRow {
+        GeoPointRow(
+            id: id,
+            lat: lat,
+            lon: lon,
+            accuracy: accuracy,
+            altitude: altitude,
+            speed: speed,
+            heading: heading,
+            recordedAtMillis: recordedAtMillis,
+            isMock: isMock,
+            batteryLevel: batteryLevel
+        )
+    }
+
     private static func isSimulated(_ location: CLLocation) -> Bool {
         if #available(iOS 15.0, *) {
             return location.sourceInformation?.isSimulatedBySoftware ?? false

@@ -43,7 +43,14 @@ final class PointQueue {
         return true
     }
 
-    func oldest(limit: Int) -> [GeoPointRow] { store.oldest(limit: limit) }
+    func oldest(limit: Int, nowMillis: Int64) -> [GeoPointRow] {
+        store.oldest(limit: limit, nowMillis: nowMillis)
+    }
+
+    /// Stands a refused batch down so the queue behind it can move.
+    func `defer`(ids: [String], untilMillis: Int64) {
+        store.defer(ids: ids, untilMillis: untilMillis)
+    }
 
     func drop(ids: [String]) { store.delete(ids: ids) }
 

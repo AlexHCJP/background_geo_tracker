@@ -26,10 +26,20 @@ class UploadPolicyTest {
     }
 
     @Test
-    fun `other 4xx are poisoned so they cannot wedge the queue`() {
-        assertEquals(UploadOutcome.POISONED, UploadPolicy.classify(400))
-        assertEquals(UploadOutcome.POISONED, UploadPolicy.classify(403))
-        assertEquals(UploadOutcome.POISONED, UploadPolicy.classify(422))
+    fun `other 4xx are deferred rather than dropped`() {
+        // Used to be POISONED, which deleted the batch. At batchSize 50 that
+        // meant one bad point taking forty-nine good ones with it, and the
+        // only trace was a line in the status.
+        assertEquals(UploadOutcome.DEFERRED, UploadPolicy.classify(400))
+        assertEquals(UploadOutcome.DEFERRED, UploadPolicy.classify(403))
+        assertEquals(UploadOutcome.DEFERRED, UploadPolicy.classify(422))
+    }
+
+    @Test
+    fun `the defer window is long enough to be worth waiting out`() {
+        // A permanently rejected batch costs one request per window until the
+        // queue's own ceilings evict it, so the window is what bounds that.
+        assertTrue(UploadPolicy.DEFER_WINDOW_MILLIS >= 60_000L)
     }
 
     @Test

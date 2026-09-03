@@ -1,3 +1,4 @@
+import SQLite3
 import XCTest
 
 @testable import background_geo_tracker
@@ -33,7 +34,7 @@ final class PointQueueTests: XCTestCase {
         queue.enqueue(row("a", at: now), maxPoints: 100, maxAgeDays: 7)
         queue.enqueue(row("b", at: now + 1), maxPoints: 100, maxAgeDays: 7)
 
-        XCTAssertEqual(queue.oldest(limit: 10).map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(queue.oldest(limit: 10, nowMillis: now).map(\.id), ["a", "b", "c"])
     }
 
     func testOldestRespectsBatchLimit() {
@@ -45,7 +46,7 @@ final class PointQueueTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(queue.oldest(limit: 2).count, 2)
+        XCTAssertEqual(queue.oldest(limit: 2, nowMillis: now).count, 2)
     }
 
     func testDropDeletesOnlyAcknowledgedPoints() {
@@ -59,7 +60,7 @@ final class PointQueueTests: XCTestCase {
 
         queue.drop(ids: ["p0", "p1"])
 
-        XCTAssertEqual(queue.oldest(limit: 10).map(\.id), ["p2"])
+        XCTAssertEqual(queue.oldest(limit: 10, nowMillis: now).map(\.id), ["p2"])
     }
 
     func testPointCeilingEvictsOldestFirst() {
@@ -72,7 +73,7 @@ final class PointQueueTests: XCTestCase {
         }
 
         XCTAssertEqual(queue.count(), 3)
-        XCTAssertEqual(queue.oldest(limit: 10).map(\.id), ["p2", "p3", "p4"])
+        XCTAssertEqual(queue.oldest(limit: 10, nowMillis: now).map(\.id), ["p2", "p3", "p4"])
     }
 
     func testAgeCeilingDropsPointsOlderThanWindow() {
@@ -81,7 +82,7 @@ final class PointQueueTests: XCTestCase {
         )
         queue.enqueue(row("fresh", at: now), maxPoints: 100, maxAgeDays: 7)
 
-        XCTAssertEqual(queue.oldest(limit: 10).map(\.id), ["fresh"])
+        XCTAssertEqual(queue.oldest(limit: 10, nowMillis: now).map(\.id), ["fresh"])
     }
 
     func testReEnqueuingSameIdDoesNotDuplicate() {
@@ -98,7 +99,7 @@ final class PointQueueTests: XCTestCase {
         queue.clear()
 
         XCTAssertEqual(queue.count(), 0)
-        XCTAssertTrue(queue.oldest(limit: 10).isEmpty)
+        XCTAssertTrue(queue.oldest(limit: 10, nowMillis: now).isEmpty)
     }
 
     func testQueueIsUsableAfterBeingCleared() {
@@ -106,18 +107,119 @@ final class PointQueueTests: XCTestCase {
         queue.clear()
         queue.enqueue(row("new", at: now + 1), maxPoints: 100, maxAgeDays: 7)
 
-        XCTAssertEqual(queue.oldest(limit: 10).map(\.id), ["new"])
+        XCTAssertEqual(queue.oldest(limit: 10, nowMillis: now).map(\.id), ["new"])
     }
 
     func testNullableSensorColumnsRoundTripAsNil() {
         queue.enqueue(row("p", at: now), maxPoints: 100, maxAgeDays: 7)
 
-        let stored = queue.oldest(limit: 1).first
+        let stored = queue.oldest(limit: 1, nowMillis: now).first
 
         XCTAssertNil(stored?.altitude)
         XCTAssertNil(stored?.speed)
         XCTAssertNil(stored?.heading)
         XCTAssertNil(stored?.batteryLevel)
         XCTAssertEqual(stored?.lat, 55.75)
+    }
+
+    // MARK: - Deferral
+
+    func testDeferredPointIsWithheldUntilItsTimeComes() {
+        queue.enqueue(row("a", at: now), maxPoints: 100, maxAgeDays: 7)
+
+        queue.defer(ids: ["a"], untilMillis: now + 60_000)
+
+        XCTAssertTrue(queue.oldest(limit: 10, nowMillis: now).isEmpty)
+    }
+
+    func testDeferredPointComesBackOnceItsTimeHasPassed() {
+        queue.enqueue(row("a", at: now), maxPoints: 100, maxAgeDays: 7)
+        queue.defer(ids: ["a"], untilMillis: now + 60_000)
+
+        XCTAssertEqual(
+            queue.oldest(limit: 10, nowMillis: now + 60_001).map(\.id), ["a"]
+        )
+    }
+
+    func testQueueMovesPastADeferredHead() {
+        // The whole reason deferral exists rather than dropping: the queue is
+        // read from the head, so a batch that is never accepted would
+        // otherwise be re-read forever and nothing behind it would move.
+        queue.enqueue(row("stuck", at: now), maxPoints: 100, maxAgeDays: 7)
+        queue.enqueue(row("fine", at: now + 1), maxPoints: 100, maxAgeDays: 7)
+
+        queue.defer(ids: ["stuck"], untilMillis: now + 60_000)
+
+        XCTAssertEqual(
+            queue.oldest(limit: 10, nowMillis: now).map(\.id), ["fine"]
+        )
+    }
+
+    func testDeferTouchesOnlyTheIdsItIsGiven() {
+        queue.enqueue(row("a", at: now), maxPoints: 100, maxAgeDays: 7)
+        queue.enqueue(row("b", at: now + 1), maxPoints: 100, maxAgeDays: 7)
+
+        queue.defer(ids: ["a"], untilMillis: now + 60_000)
+
+        XCTAssertEqual(queue.oldest(limit: 10, nowMillis: now).map(\.id), ["b"])
+    }
+
+    func testASecondRefusalMovesTheWindowRatherThanStackingIt() {
+        queue.enqueue(row("a", at: now), maxPoints: 100, maxAgeDays: 7)
+
+        queue.defer(ids: ["a"], untilMillis: now + 60_000)
+        queue.defer(ids: ["a"], untilMillis: now + 10_000)
+
+        // Overwritten, not added to: the point is due at the second deadline.
+        XCTAssertEqual(
+            queue.oldest(limit: 10, nowMillis: now + 10_001).map(\.id), ["a"]
+        )
+    }
+
+    func testCountIncludesDeferredPoints() {
+        // The status answers "how much has not arrived yet", and a deferred
+        // point has not arrived.
+        queue.enqueue(row("a", at: now), maxPoints: 100, maxAgeDays: 7)
+        queue.defer(ids: ["a"], untilMillis: now + 60_000)
+
+        XCTAssertEqual(queue.count(), 1)
+    }
+
+    // MARK: - Migration
+
+    func testAStoreBuiltBeforeTheColumnKeepsItsRows() throws {
+        // The cost of getting this wrong is not a red test — it is every
+        // updating user's queue, silently emptied on the launch after an
+        // update.
+        let path = NSTemporaryDirectory() + "legacy_points_xctest.sqlite"
+        try? FileManager.default.removeItem(atPath: path)
+
+        var raw: OpaquePointer?
+        sqlite3_open(path, &raw)
+        sqlite3_exec(raw, """
+            CREATE TABLE points (
+                id TEXT PRIMARY KEY NOT NULL, lat REAL NOT NULL,
+                lon REAL NOT NULL, accuracy REAL NOT NULL, altitude REAL,
+                speed REAL, heading REAL, recorded_at_millis INTEGER NOT NULL,
+                is_mock INTEGER NOT NULL, battery_level REAL
+            )
+            """, nil, nil, nil)
+        sqlite3_exec(
+            raw,
+            "INSERT INTO points (id, lat, lon, accuracy, recorded_at_millis, "
+                + "is_mock) VALUES ('survivor', 55.75, 37.61, 10.0, "
+                + "\(now), 0)",
+            nil, nil, nil
+        )
+        sqlite3_close(raw)
+
+        let migrated = PointQueue(store: try XCTUnwrap(PointStore(path: path)))
+
+        XCTAssertEqual(
+            migrated.oldest(limit: 10, nowMillis: now).map(\.id), ["survivor"]
+        )
+        // And the column is genuinely usable, not merely present.
+        migrated.defer(ids: ["survivor"], untilMillis: now + 60_000)
+        XCTAssertTrue(migrated.oldest(limit: 10, nowMillis: now).isEmpty)
     }
 }

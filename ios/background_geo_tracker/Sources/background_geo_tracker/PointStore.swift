@@ -42,6 +42,17 @@ final class PointStore {
             "CREATE INDEX IF NOT EXISTS idx_points_recorded_at "
                 + "ON points (recorded_at_millis)"
         )
+        // This type has no schema version to compare against — it has always
+        // been `CREATE TABLE IF NOT EXISTS` and nothing else — so a column
+        // added later has to be added idempotently instead. Asking the table
+        // what it already has is the only thing that works on both a fresh
+        // install and one that has been collecting for a month.
+        if !hasColumn("deferred_until_millis") {
+            exec(
+                "ALTER TABLE points ADD COLUMN "
+                    + "deferred_until_millis INTEGER NOT NULL DEFAULT 0"
+            )
+        }
     }
 
     deinit {
@@ -51,6 +62,24 @@ final class PointStore {
     @discardableResult
     private func exec(_ sql: String) -> Bool {
         sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK
+    }
+
+    /// Whether the table already carries a column. Stands in for the schema
+    /// version this store never had.
+    private func hasColumn(_ name: String) -> Bool {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db, "PRAGMA table_info(points)", -1, &statement, nil
+        ) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(statement) }
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let column = sqlite3_column_text(statement, 1),
+               String(cString: column) == name {
+                return true
+            }
+        }
+        return false
     }
 
     private func bindDouble(
@@ -103,19 +132,26 @@ final class PointStore {
         return true
     }
 
-    func oldest(limit: Int) -> [GeoPointRow] {
+    /// The oldest points that are due, oldest first.
+    ///
+    /// The deferral filter is not an optimisation. The uploader recurses until
+    /// this returns empty, so a stood-down batch that kept coming back would
+    /// recurse forever on the same rows.
+    func oldest(limit: Int, nowMillis: Int64) -> [GeoPointRow] {
         lock.lock()
         defer { lock.unlock() }
 
         var statement: OpaquePointer?
         let sql = "SELECT id, lat, lon, accuracy, altitude, speed, heading, "
             + "recorded_at_millis, is_mock, battery_level FROM points "
+            + "WHERE deferred_until_millis <= ? "
             + "ORDER BY recorded_at_millis ASC LIMIT ?"
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK
         else { return [] }
         defer { sqlite3_finalize(statement) }
 
-        sqlite3_bind_int(statement, 1, Int32(limit))
+        sqlite3_bind_int64(statement, 1, nowMillis)
+        sqlite3_bind_int(statement, 2, Int32(limit))
 
         func double(_ index: Int32) -> Double? {
             sqlite3_column_type(statement, index) == SQLITE_NULL
@@ -144,6 +180,37 @@ final class PointStore {
             )
         }
         return rows
+    }
+
+    /// Stands the given points down until `untilMillis`.
+    ///
+    /// Overwrites rather than accumulates: a batch refused twice waits one
+    /// window from the second refusal, not two from the first.
+    ///
+    /// Backticked because `defer` is a Swift keyword — the name is worth the
+    /// backticks, since `postpone` or `standDown` would stop matching the
+    /// Kotlin side and the column they both write.
+    func `defer`(ids: [String], untilMillis: Int64) {
+        guard !ids.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+
+        let placeholders = Array(repeating: "?", count: ids.count)
+            .joined(separator: ",")
+        var statement: OpaquePointer?
+        let sql = "UPDATE points SET deferred_until_millis = ? "
+            + "WHERE id IN (\(placeholders))"
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK
+        else { return }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int64(statement, 1, untilMillis)
+        for (offset, id) in ids.enumerated() {
+            sqlite3_bind_text(
+                statement, Int32(offset + 2), id, -1, Self.transient
+            )
+        }
+        sqlite3_step(statement)
     }
 
     func delete(ids: [String]) {

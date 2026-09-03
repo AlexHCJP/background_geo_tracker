@@ -74,5 +74,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMotionUsageDescription</key>
+	<string>Motion access lets the collector notice that you started moving instead of holding the GPS on while the phone lies still.</string>
 </dict>
 </plist>

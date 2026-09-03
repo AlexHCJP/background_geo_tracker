@@ -1,5 +1,6 @@
 package school.attractor.attractor_geo
 
+import android.app.NotificationManager
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -37,6 +38,9 @@ class GeoConfigStore(
     private fun Map<String, Any?>.string(key: String, fallback: String): String =
         this[key] as? String ?: fallback
 
+    private fun Map<String, Any?>.double(key: String, fallback: Double): Double =
+        (this[key] as? Number)?.toDouble() ?: fallback
+
     fun save(config: Map<String, Any?>) {
         prefs.edit().apply {
             putString("url", config.string("url", ""))
@@ -50,6 +54,10 @@ class GeoConfigStore(
             )
             putInt("batch_size", config.int("batch_size", 50))
             putInt(
+                "send_after_points",
+                config.int("send_after_points", config.int("batch_size", 50)),
+            )
+            putInt(
                 "upload_interval_seconds",
                 config.int("upload_interval_seconds", 60),
             )
@@ -62,6 +70,52 @@ class GeoConfigStore(
             putString(
                 "notification_body",
                 config.string("notification_body", "Recording your route"),
+            )
+            putString(
+                "notification_channel_name",
+                config.string("notification_channel_name", "Location tracking"),
+            )
+            putString(
+                "notification_small_icon",
+                config.string("notification_small_icon", ""),
+            )
+            putString(
+                "notification_importance",
+                config.string("notification_importance", "low"),
+            )
+            putBoolean(
+                "notification_tap_opens_app",
+                config["notification_tap_opens_app"] as? Boolean ?: true,
+            )
+            putFloat(
+                "filter_accuracy_threshold_meters",
+                config.double("filter_accuracy_threshold_meters", 100.0)
+                    .toFloat(),
+            )
+            putFloat(
+                "filter_min_displacement_meters",
+                config.double("filter_min_displacement_meters", 1.0).toFloat(),
+            )
+            putFloat(
+                "filter_max_implied_speed_mps",
+                config.double("filter_max_implied_speed_mps", 60.0).toFloat(),
+            )
+            putFloat(
+                "filter_kalman_process_noise_mps",
+                config.double("filter_kalman_process_noise_mps", 3.0).toFloat(),
+            )
+            putInt(
+                "motion_stop_timeout_seconds",
+                config.int("motion_stop_timeout_seconds", 300),
+            )
+            putFloat(
+                "motion_stationary_radius_meters",
+                config.double("motion_stationary_radius_meters", 150.0)
+                    .toFloat(),
+            )
+            putFloat(
+                "motion_elasticity_multiplier",
+                config.double("motion_elasticity_multiplier", 1.0).toFloat(),
             )
             putBoolean("configured", true)
         }.apply()
@@ -102,14 +156,66 @@ class GeoConfigStore(
         get() = prefs.getInt("distance_filter_meters", 20)
     val minIntervalSeconds: Int get() = prefs.getInt("min_interval_seconds", 10)
     val batchSize: Int get() = prefs.getInt("batch_size", 50)
+
+    /**
+     * How many queued points make an arriving point send a request. Falls back
+     * to [batchSize], which is what this used to be half of, so a store
+     * written by an older build behaves exactly as it did.
+     */
+    val sendAfterPoints: Int
+        get() = prefs.getInt("send_after_points", batchSize)
     val uploadIntervalSeconds: Int
         get() = prefs.getInt("upload_interval_seconds", 60)
     val queueMaxPoints: Int get() = prefs.getInt("queue_max_points", 20000)
     val queueMaxAgeDays: Int get() = prefs.getInt("queue_max_age_days", 7)
+    val filterAccuracyThresholdMeters: Double
+        get() = prefs.getFloat("filter_accuracy_threshold_meters", 100f)
+            .toDouble()
+    val filterMinDisplacementMeters: Double
+        get() = prefs.getFloat("filter_min_displacement_meters", 1f).toDouble()
+    val filterMaxImpliedSpeedMps: Double
+        get() = prefs.getFloat("filter_max_implied_speed_mps", 60f).toDouble()
+    val filterKalmanProcessNoiseMps: Double
+        get() = prefs.getFloat("filter_kalman_process_noise_mps", 3f).toDouble()
+
+    val motionStopTimeoutSeconds: Int
+        get() = prefs.getInt("motion_stop_timeout_seconds", 300)
+    val motionStationaryRadiusMeters: Double
+        get() = prefs.getFloat("motion_stationary_radius_meters", 150f)
+            .toDouble()
+    val motionElasticityMultiplier: Double
+        get() = prefs.getFloat("motion_elasticity_multiplier", 1f).toDouble()
+
     val notificationTitle: String
         get() = prefs.getString("notification_title", "Tracking")!!
     val notificationBody: String
         get() = prefs.getString("notification_body", "Recording your route")!!
+
+    val notificationChannelName: String
+        get() = prefs.getString("notification_channel_name", "Location tracking")!!
+
+    /**
+     * The name of a drawable in the host app's resources, or empty for the
+     * platform's own. Resolved to an id in [GeoTrackingService], where a
+     * `Resources` is at hand.
+     */
+    val notificationSmallIcon: String
+        get() = prefs.getString("notification_small_icon", "")!!
+
+    /**
+     * Already translated to the platform constant, so no caller has to know
+     * the mapping. An unknown name reads as [NotificationManager.IMPORTANCE_LOW]:
+     * a session runs for hours, and a name this build does not understand must
+     * not be what makes it start making noise.
+     */
+    val notificationImportance: Int
+        get() = when (prefs.getString("notification_importance", "low")) {
+            "normal" -> NotificationManager.IMPORTANCE_DEFAULT
+            else -> NotificationManager.IMPORTANCE_LOW
+        }
+
+    val notificationTapOpensApp: Boolean
+        get() = prefs.getBoolean("notification_tap_opens_app", true)
 
     val headers: Map<String, String>
         get() {
@@ -122,6 +228,18 @@ class GeoConfigStore(
     var isTracking: Boolean
         get() = prefs.getBoolean("is_tracking", false)
         set(value) = prefs.edit().putBoolean("is_tracking", value).apply()
+
+    /**
+     * Whether the collector is currently asking for fixes. Persisted because
+     * the status is assembled from places the service object cannot be reached
+     * from — the plugin and the upload worker — and a status that reported a
+     * stationary collector as collecting would explain nothing.
+     *
+     * True by default: a session that has never stopped is moving.
+     */
+    var isMoving: Boolean
+        get() = prefs.getBoolean("is_moving", true)
+        set(value) = prefs.edit().putBoolean("is_moving", value).apply()
 
     var authFailed: Boolean
         get() = prefs.getBoolean("auth_failed", false)
