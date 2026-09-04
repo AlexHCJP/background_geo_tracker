@@ -51,7 +51,7 @@ final class GeoLogStore {
         try? FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true
         )
-        return directory.appendingPathComponent("attractor_geo_log.sqlite").path
+        return directory.appendingPathComponent("background_geo_tracker_log.sqlite").path
     }
 
     init?(path: String) {

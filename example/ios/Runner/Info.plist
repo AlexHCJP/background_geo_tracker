@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Attractor Geo</string>
+	<string>Background Geo Tracker</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Attractor records your route while you have a tracking session open.</string>
+	<string>The app records your route while you have a tracking session open.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Attractor keeps recording your route in the background so the track does not break when you leave the app.</string>
+	<string>The app keeps recording your route in the background so the track does not break when you leave the app.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

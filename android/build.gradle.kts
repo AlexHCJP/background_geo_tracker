@@ -1,4 +1,4 @@
-group = "school.attractor.attractor_geo"
+group = "dev.background_geo_tracker.plugin"
 version = "1.0-SNAPSHOT"
 
 buildscript {
@@ -26,7 +26,7 @@ plugins {
 }
 
 android {
-    namespace = "school.attractor.attractor_geo"
+    namespace = "dev.background_geo_tracker.plugin"
 
     compileSdk = 36
 

@@ -5,7 +5,7 @@ import Foundation
 final class GeoConfigStore {
     private let defaults = UserDefaults.standard
     private static let headersAccount = "upload_headers"
-    private static let prefix = "attractor_geo."
+    private static let prefix = "background_geo_tracker."
 
     private func key(_ name: String) -> String { Self.prefix + name }
 

@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   GeoUploadConfig standard() => GeoUploadConfig.standard(
     sessionId: 'consent-42',
-    url: 'https://api.attractor.school/v1/tracking/points',
+    url: 'https://api.example.com/v1/tracking/points',
     headers: const <String, String>{'Authorization': 'Bearer token'},
     notification: GeoNotificationConfig.standard(
       title: 'Tracking',
@@ -31,7 +31,7 @@ void main() {
   test('toMap uses the wire keys the native layer reads', () {
     expect(standard().toMap(), <String, Object?>{
       'session_id': 'consent-42',
-      'url': 'https://api.attractor.school/v1/tracking/points',
+      'url': 'https://api.example.com/v1/tracking/points',
       'headers': <String, String>{'Authorization': 'Bearer token'},
       'distance_filter_meters': 20,
       'min_interval_seconds': 10,
@@ -94,7 +94,7 @@ void main() {
       headers: const <String, String>{},
       notification: GeoNotificationConfig.standard(
         title: 'Запись маршрута',
-        body: 'Attractor записывает ваш маршрут',
+        body: 'Приложение записывает ваш маршрут',
         channelName: 'Запись маршрута',
         smallIcon: 'ic_stat_tracking',
         importance: GeoNotificationImportance.normal,

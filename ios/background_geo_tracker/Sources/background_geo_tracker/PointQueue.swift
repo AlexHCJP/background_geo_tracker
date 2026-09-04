@@ -25,7 +25,7 @@ final class PointQueue {
         try? FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true
         )
-        return directory.appendingPathComponent("attractor_geo.sqlite").path
+        return directory.appendingPathComponent("background_geo_tracker.sqlite").path
     }
 
     @discardableResult

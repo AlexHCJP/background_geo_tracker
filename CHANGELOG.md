@@ -1,4 +1,21 @@
 
+## 0.11.0
+
+* **Removed the last `Attractor`/`attractor_geo` naming** — the Android
+  package (`school.attractor.attractor_geo` → `dev.background_geo_tracker.plugin`),
+  the `AttractorGeoPlugin`/`AttractorGeoLaunch` classes (now
+  `BackgroundGeoTrackerPlugin`/`BackgroundGeoTrackerLaunch`), the method
+  channel names, and every on-device storage identifier (SQLite filenames,
+  the Keychain service, the `UserDefaults` prefix, the `SharedPreferences`
+  files, the notification channel and the WorkManager job names) now say
+  `background_geo_tracker` throughout. Unlike the 0.3.0 rename, this one is
+  breaking for existing installs: upgrading orphans any queued points and
+  stored credentials, and an already-scheduled Android job from an older
+  version has to be cancelled by hand, because none of the old identifiers
+  survive.
+* Update the iOS host call to `BackgroundGeoTrackerLaunch.resumeIfTracking()`.
+  Nothing about the Dart API moved.
+
 ## 0.10.0
 
 * Every queued and uploaded point now carries a required `session_id`, so an
