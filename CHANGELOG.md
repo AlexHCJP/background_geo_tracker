@@ -1,5 +1,5 @@
 
-## 0.9.1
+## 0.10.0
 
 * Every queued and uploaded point now carries a required `session_id`, so an
   offline tail cannot be attributed to a later sharing session.
