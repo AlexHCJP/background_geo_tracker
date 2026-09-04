@@ -12,10 +12,6 @@ The native layer is self-sufficient: it collects points and uploads them
 without a live Dart isolate. A session keeps running while the app is
 backgrounded or evicted from memory, and resumes by itself afterwards.
 
-This repository is a maintained fork of
-[`AlexHCJP/background_geo_tracker`](https://github.com/AlexHCJP/background_geo_tracker).
-The original MIT copyright and license are preserved.
-
 - [Install](#install)
 - [iOS setup](#ios-setup)
 - [Android setup](#android-setup)
