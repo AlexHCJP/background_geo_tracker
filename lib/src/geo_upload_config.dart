@@ -16,11 +16,13 @@ class GeoUploadConfig {
     required int distanceFilterMeters,
     required int minIntervalSeconds,
     required int batchSize,
+    required int sendAfterPoints,
     required int uploadIntervalSeconds,
     required int queueMaxPoints,
     required int queueMaxAgeDays,
-    required String notificationTitle,
-    required String notificationBody,
+    required GeoFilterConfig filter,
+    required GeoMotionConfig motion,
+    required GeoNotificationConfig notification,
   }) {
     final normalizedSessionId = sessionId.trim();
     if (normalizedSessionId.isEmpty) {
@@ -50,10 +52,11 @@ class GeoUploadConfig {
     }
     _requirePositive(minIntervalSeconds, 'minIntervalSeconds');
     _requirePositive(batchSize, 'batchSize');
+    _requirePositive(sendAfterPoints, 'sendAfterPoints');
     _requirePositive(uploadIntervalSeconds, 'uploadIntervalSeconds');
     _requirePositive(queueMaxPoints, 'queueMaxPoints');
     _requirePositive(queueMaxAgeDays, 'queueMaxAgeDays');
-    if (notificationTitle.trim().isEmpty || notificationBody.trim().isEmpty) {
+    if (notification.title.trim().isEmpty || notification.body.trim().isEmpty) {
       throw ArgumentError(
         'notificationTitle and notificationBody must not be empty',
       );
@@ -66,11 +69,13 @@ class GeoUploadConfig {
       distanceFilterMeters: distanceFilterMeters,
       minIntervalSeconds: minIntervalSeconds,
       batchSize: batchSize,
+      sendAfterPoints: sendAfterPoints,
       uploadIntervalSeconds: uploadIntervalSeconds,
       queueMaxPoints: queueMaxPoints,
       queueMaxAgeDays: queueMaxAgeDays,
-      notificationTitle: notificationTitle.trim(),
-      notificationBody: notificationBody.trim(),
+      filter: filter,
+      motion: motion,
+      notification: notification,
     );
   }
 
