@@ -255,8 +255,8 @@ final class PointStore {
             "SELECT id, session_id, lat, lon, accuracy, altitude, "
             + "speed, heading, recorded_at_millis, is_mock, battery_level "
             + "FROM points WHERE session_id = ? "
+            + "AND deferred_until_millis <= (strftime('%s','now') * 1000) "
             + "ORDER BY recorded_at_millis ASC LIMIT ?"
-
         guard sqlite3_prepare_v2(
             db,
             sql,
