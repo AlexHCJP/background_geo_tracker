@@ -26,8 +26,8 @@ The original MIT copyright and license are preserved.
 dependencies:
   background_geo_tracker:
     git:
-      url: https://github.com/tahayildirm/background_geo_tracker.git
-      ref: v0.5.1
+      url: https://github.com/AlexHCJP/background_geo_tracker.git
+      ref: v0.9.1
 ```
 
 Platform floors, both enforced by the package:
