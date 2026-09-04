@@ -54,6 +54,7 @@ struct GeoPointRow {
     func movedTo(lat: Double, lon: Double, accuracy: Double) -> GeoPointRow {
         GeoPointRow(
             id: id,
+            sessionId: sessionId,
             lat: lat,
             lon: lon,
             accuracy: accuracy,
