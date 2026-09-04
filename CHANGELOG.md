@@ -19,119 +19,129 @@
 
 ## 0.9.0
 
-* **`stopTimeoutSeconds: 0` выключает стоп-детекцию.** GPS горит всю сессию.
-  Раньше выключить машину состояний было нечем: приходилось ставить абсурдно
-  большой таймаут и надеяться, что до него не дойдёт. Ноль означает
-  «выключено», а не «останавливаться немедленно» — второе прочтение гасило бы
-  сбор на втором фиксе каждой сессии. Та же идиома, что у
-  `elasticityMultiplier: 0`.
-* **iOS: `distanceFilterMeters: 0` теперь действительно значит «без фильтра».**
-  `kCLDistanceFilterNone` — это `-1`, а ноль CoreLocation не определяет: на
-  практике делегат просто замолкал. Конфигурация просила все фиксы подряд и
-  получала тишину — худший вид расхождения платформ, потому что Android при
-  тех же настройках работал. Ноль и меньше переводятся в константу.
-* README получил раздел о том, как собрать конфигурацию под реальное время, и
-  что это стоит по батарее, запросам и дрожанию неподвижного маркера.
+* **`stopTimeoutSeconds: 0` disables stop detection.** The GPS stays on for
+  the whole session. Previously there was no way to turn the state machine
+  off: you had to set an absurdly large timeout and hope it was never
+  reached. Zero means "disabled", not "stop immediately" — the second
+  reading would have killed collection on the second fix of every session.
+  The same convention as `elasticityMultiplier: 0`.
+* **iOS: `distanceFilterMeters: 0` now really means "no filter".**
+  `kCLDistanceFilterNone` is `-1`, and CoreLocation does not define zero: in
+  practice the delegate simply went silent. The configuration asked for
+  every fix and got silence — the worst kind of platform divergence, because
+  Android worked fine with the same settings. Zero and below are now
+  translated to the constant.
+* README got a section on how to configure the package for real-time use,
+  and what it costs in battery, requests, and stationary-marker jitter.
 
 ## 0.8.0
 
-* **`sendAfterPoints` отделён от `batchSize`.** Одно число отвечало на два
-  вопроса — «когда уходит запрос» и «сколько точек он несёт», — и это делало
-  свежесть неоплачиваемой: купить её можно было только вместе с крошечным
-  запросом, а значит час офлайна уезжал ста восемьюдесятью round trip'ами и
-  одного сбоя среди них хватало, чтобы положить очередь на бэкофф.
+* **`sendAfterPoints` split off from `batchSize`.** A single number answered
+  two questions — "when does the request go out" and "how many points does
+  it carry" — and that made freshness unaffordable on its own: the only way
+  to buy it was to pair it with a tiny request, so an hour offline would
+  leave as a hundred and eighty round trips, and a single failure among
+  them was enough to put the queue into backoff.
 
   ```dart
   GeoUploadConfig.standard(
     …,
-    sendAfterPoints: 1,   // запрос уходит с каждой записанной точкой
-    batchSize: 50,        // накопленное офлайн уезжает по пятьдесят
+    sendAfterPoints: 1,   // the request leaves with every recorded point
+    batchSize: 50,        // anything accumulated offline leaves fifty at a time
   )
   ```
 
-  Ничего не ломается: `sendAfterPoints` по умолчанию равен `batchSize`, а
-  нативные сторы читают старый ключ как фолбэк, так что конфигурация от прежней
-  сборки ведёт себя ровно как вела.
-* Обе платформы считают порог по новому полю, а размер запроса — по-прежнему по
-  `batchSize`: воркер на Android вычерпывает очередь `while (true)`, iOS шлёт
-  `oldest(batchSize)` в цикле, поэтому низкий порог не дробит бэклог.
-* Статусная строка `waiting for a sweep — n/m` на iOS теперь показывает порог, а
-  не размер батча: раньше она называла число, которое к решению уже не имело
-  отношения.
+  Nothing breaks: `sendAfterPoints` defaults to `batchSize`, and the native
+  stores read the old key as a fallback, so a configuration from an earlier
+  build behaves exactly as it did before.
+* Both platforms count the threshold from the new field, while the request
+  size still comes from `batchSize`: the Android worker drains the queue in
+  a `while (true)` loop, iOS sends `oldest(batchSize)` in a loop, so a low
+  threshold does not fragment the backlog.
+* The `waiting for a sweep — n/m` status line on iOS now shows the
+  threshold rather than the batch size: previously it named a number that no
+  longer had anything to do with the decision.
 
 ## 0.7.0
 
-* **Breaking: уведомление настраивается через `GeoNotificationConfig`.**
-  `notificationTitle` и `notificationBody` уехали в новый объект рядом с
-  `filter` и `motion`; `GeoUploadConfig.notification` обязателен и без
-  умолчания, потому что половина его — пользовательский текст, а локали у
-  пакета нет. Правка на стороне вызывающего:
+* **Breaking: the notification is now configured via `GeoNotificationConfig`.**
+  `notificationTitle` and `notificationBody` moved into a new object
+  alongside `filter` and `motion`; `GeoUploadConfig.notification` is
+  required and has no default, because half of it is user-facing text and
+  the package has no locale of its own. Caller-side change:
 
   ```dart
   GeoUploadConfig.standard(
     url: …,
     headers: …,
     notification: GeoNotificationConfig.standard(
-      title: 'Запись маршрута',
-      body: 'Пишем ваш маршрут',
-      channelName: 'Запись маршрута',
+      title: 'Route recording',
+      body: 'Recording your route',
+      channelName: 'Route recording',
     ),
   )
   ```
 
-  Ключи `notification_title` и `notification_body` на проводе не изменились, так
-  что нативный стор от прежней сборки читается как был.
-* **Иконка в статус-баре — хоста, а не Android.** `smallIcon` берёт имя
-  drawable из ресурсов приложения; нативная сторона ищет его в `drawable`,
-  потом в `mipmap`, и при промахе пишет `notification.icon` в лог и ставит
-  системную. Не бросает: невалидный id роняет уведомление при публикации, а это
-  уносит весь foreground-сервис.
-* **Канал называется словами приложения.** `channelName` вместо зашитого
-  английского «Location tracking», который до сих пор так и читался в системных
-  настройках русского приложения. Переименование применяется на следующем
-  `configure`; смена `importance` — нет, после создания канала его двигает
-  только пользователь.
-* **`importance`** — `low` (по умолчанию, без звука) или `normal`. Неизвестное
-  имя читается как `low`: сессия идёт часами, и незнакомая строка не должна
-  быть тем, из-за чего она начнёт звучать.
-* **`tapOpensApp`** — нажатие открывает лаунчер-активити хоста. По умолчанию
-  включено: постоянное уведомление, которое не реагирует на нажатие, читается
-  как зависшее приложение.
-* Не делается и не планируется: кнопки-действия, свой layout, largeIcon.
-  Кнопку некому обслужить — Dart-изолята в этот момент нет.
+  The `notification_title` and `notification_body` wire keys are unchanged,
+  so the native store from a previous build reads exactly as it did.
+* **The status-bar icon belongs to the host, not to Android.** `smallIcon`
+  takes a drawable name from the app's own resources; the native side looks
+  it up in `drawable`, then `mipmap`, and on a miss logs
+  `notification.icon` and falls back to the system icon. It never throws:
+  an invalid id would drop the notification when it is posted, taking the
+  whole foreground service down with it.
+* **The channel is named in the app's own words.** `channelName` replaces
+  the hardcoded English "Location tracking", which used to read exactly
+  that way in the system settings of a localized app. Renaming applies on
+  the next `configure`; changing `importance` does not — once a channel is
+  created, only the user can move it.
+* **`importance`** — `low` (default, silent) or `normal`. An unknown name
+  reads as `low`: a session runs for hours, and an unfamiliar string should
+  not be what makes it start making noise.
+* **`tapOpensApp`** — tapping opens the host's launcher activity. Enabled by
+  default: a persistent notification that does not react to a tap reads as
+  a frozen app.
+* Not implemented and not planned: action buttons, a custom layout,
+  `largeIcon`. There is nobody to service a button — there is no Dart
+  isolate at that moment.
 
 ## 0.6.0
 
-* **Коллектор гасит GPS, когда устройство стоит.** Простояв
-  `motion.stopTimeoutSeconds` внутри `motion.stationaryRadiusMeters`, сессия
-  выключает location updates и вооружает два детектора — Activity Recognition
-  (`CMMotionActivityManager` на iOS) и геозону вокруг якоря. Первый
-  сработавший включает сбор обратно. До этого телефон, пролежавший на столе
-  восемь часов, все восемь часов держал GPS: это было единственное отличие от
-  референса, которое пользователь чувствует не читая логов.
-* **`distanceFilterMeters` растёт со скоростью.** На 90 км/ч точка пишется раз
-  в ~360 м вместо каждых 20, с потолком 500 м.
-  `GeoMotionConfig(elasticityMultiplier: 0)` отключает растяжение — это
-  «выключено», а не «фильтр в ноль метров», и эти два прочтения дают
-  противоположный результат, поэтому ноль обрабатывается отдельной веткой до
-  вычисления.
-* **`GeoUploadConfig` получает обязательное поле `motion`.** `standard()`
-  подставляет `GeoMotionConfig.standard()`, так что вызывающему коду менять
-  нечего, если он не хочет других чисел.
-* **Статус говорит, спит ли коллектор.** `GeoTrackingStatus.isMoving` и
-  `motionPermission` — `granted` / `denied` / `unavailable`. Без них
-  остановленный сбор выглядит как исправная сессия, у которой почему-то не
-  меняется позиция; `unavailable` отделено от `denied`, потому что во втором
-  случае разрешение можно спросить, а в первом спрашивать нечего.
-* **Хостам:** iOS нужен ключ `NSMotionUsageDescription` в Info.plist — без него
-  приложение падает при первом обращении к CoreMotion. Android объявляет
-  `ACTIVITY_RECOGNITION` сам и спрашивает его при `start()`; отказ стоит
-  задержки пробуждения (~200 м на геозоне), а не функциональности.
-* Машина состояний работает только под `Always`: под `whenInUse` выключенный
-  GPS будить некому, поэтому там коллектор ведёт себя как раньше. Растяжение
-  фильтра работает на любой авторизации.
+* **The collector switches off the GPS when the device is stationary.**
+  After standing still inside `motion.stationaryRadiusMeters` for
+  `motion.stopTimeoutSeconds`, the session turns off location updates and
+  arms two detectors — Activity Recognition (`CMMotionActivityManager` on
+  iOS) and a geofence around the anchor. Whichever fires first turns
+  collection back on. Before this, a phone that sat on a desk for eight
+  hours kept the GPS on for all eight hours: this was the one difference
+  from the reference implementation a user could feel without reading logs.
+* **`distanceFilterMeters` grows with speed.** At 90 km/h a point is written
+  roughly once every ~360 m instead of every 20, with a ceiling of 500 m.
+  `GeoMotionConfig(elasticityMultiplier: 0)` disables the stretching — that
+  is "disabled", not "filter set to zero metres", and these two readings
+  give opposite results, so zero is handled by a separate branch before the
+  calculation.
+* **`GeoUploadConfig` gains a required `motion` field.** `standard()`
+  supplies `GeoMotionConfig.standard()`, so calling code has nothing to
+  change unless it wants different numbers.
+* **The status reports whether the collector is asleep.**
+  `GeoTrackingStatus.isMoving` and `motionPermission` —
+  `granted` / `denied` / `unavailable`. Without them, stopped collection
+  looks like a healthy session whose position just isn't changing for some
+  reason; `unavailable` is kept separate from `denied` because in the
+  latter case the permission can be asked for, and in the former there is
+  nothing to ask.
+* **For hosts:** iOS needs the `NSMotionUsageDescription` key in
+  Info.plist — without it the app crashes on the first call to CoreMotion.
+  Android declares `ACTIVITY_RECOGNITION` itself and asks for it at
+  `start()`; a refusal costs wake-up latency (~200 m on the geofence), not
+  functionality.
+* The state machine only runs under `Always`: under `whenInUse` there is
+  nobody to wake a switched-off GPS, so the collector behaves as before
+  there. Filter stretching works under any authorization.
 
 ## 0.5.0
+
 
 * **Breaking: `GeoUploadConfig` takes one `url`, not `baseUrl` and `path`.**
   The uploader never had a use for the two halves apart — it joined them back

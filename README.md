@@ -1,5 +1,11 @@
 # background_geo_tracker
 
+![Pub Version](https://img.shields.io/pub/v/background_geo_tracker)
+![License](https://img.shields.io/github/license/AlexHCJP/background_geo_tracker)
+![Platform iOS](https://img.shields.io/badge/platform-iOS-lightgrey)
+![Platform Android](https://img.shields.io/badge/platform-Android-lightgrey)
+![Stars](https://img.shields.io/github/stars/AlexHCJP/background_geo_tracker)
+
 Native continuous route tracking with backend upload. iOS and Android.
 
 The native layer is self-sufficient: it collects points and uploads them
@@ -159,39 +165,41 @@ before sending anyone there.
 job to explain and then call `openSystemSettings()`. The package renders no UI
 of its own.
 
-### Уведомление на Android
+### Android notification
 
-Оно висит весь сеанс — Android этого требует от `location`-сервиса, — поэтому
-это самая заметная поверхность пакета. Настраивается через
+It stays up for the whole session — Android requires this from a `location`
+service — which makes it the package's most visible surface. Configured via
 `GeoNotificationConfig`:
 
-| Поле | Что делает |
+| Field | What it does |
 |---|---|
-| `title`, `body` | две строки самого уведомления |
-| `channelName` | как канал называется в системных настройках; **локализуйте** |
-| `smallIcon` | имя drawable в ресурсах хоста, например `ic_stat_route` |
-| `importance` | `low` (без звука, по умолчанию) или `normal` |
-| `tapOpensApp` | открывать ли приложение по нажатию; по умолчанию да |
+| `title`, `body` | the two lines of the notification itself |
+| `channelName` | how the channel is named in system settings; **localize this** |
+| `smallIcon` | the drawable name in the host's resources, e.g. `ic_stat_route` |
+| `importance` | `low` (silent, default) or `normal` |
+| `tapOpensApp` | whether tapping opens the app; defaults to yes |
 
-`smallIcon` берётся **по имени**, а не по id: id генерируются на сборке, и
-Dart-слою их держать негде. Нативная сторона ищет имя в `drawable`, потом в
-`mipmap`, и если не нашла — пишет `notification.icon` в лог и ставит системную
-иконку. Не бросает: невалидный id роняет уведомление в момент публикации, а это
-уносит с собой весь foreground-сервис — потерять сессию из-за иконки было бы
-плохим обменом.
+`smallIcon` is resolved **by name**, not by id: ids are generated at build
+time, and the Dart layer has nowhere to keep them. The native side looks up
+the name in `drawable`, then `mipmap`, and if it finds neither — logs
+`notification.icon` and falls back to the system icon. It never throws: an
+invalid id would drop the notification at the moment it is posted, and that
+takes the whole foreground service down with it — losing a session over an
+icon would be a bad trade.
 
-Android рисует эту иконку белым силуэтом в статус-баре, так что цветной
-лаунчер-икон приезжает бесформенным пятном. Нужен монохромный глиф с
-прозрачностью.
+Android renders this icon as a white silhouette in the status bar, so a
+colourful launcher icon arrives as a shapeless blob. It needs a monochrome
+glyph with transparency.
 
-Переименование канала применяется на следующем `configure`, **смена
-`importance` — нет**: после создания канала двигать его вправе только
-пользователь. Сборке, передумавшей насчёт важности, нужна переустановка.
+Renaming the channel applies on the next `configure`, **changing
+`importance` does not**: once a channel is created, only the user may move
+it. A build that changes its mind about importance needs a reinstall.
 
-Чего здесь нет и не планируется: кнопок-действий, своего layout и largeIcon.
-Кнопка в уведомлении — это событие, которое некому доставить: Dart-изолята в
-этот момент нет, а поднимать его ради этого значит заводить headless-режим,
-которого у пакета нет по решению.
+What is not here and is not planned: action buttons, a custom layout, and
+`largeIcon`. A button in the notification is an event with nobody to deliver
+it to: there is no Dart isolate at that moment, and spinning one up just for
+this would mean adding a headless mode, which this package deliberately does
+not have.
 
 ### Battery
 
@@ -200,196 +208,211 @@ two device states that throttle a background collector without any of its own
 diagnostics changing. `openBatteryOptimizationSettings()` opens the exemption
 list on Android and does nothing on iOS.
 
-### Когда GPS выключен
+### When GPS is off
 
-Сессия не держит GPS от старта до остановки. Простояв `stopTimeoutSeconds`
-внутри `stationaryRadiusMeters`, коллектор выключает location updates и
-вооружает два детектора: быстрый — Activity Recognition на Android и
-`CMMotionActivityManager` на iOS, он замечает движение через несколько метров,
-и запасной — геозону радиусом `stationaryRadiusMeters` вокруг якоря, она
-отвечает через 200–500 м. Первый сработавший будит коллектор.
+A session does not keep the GPS on from start to stop. Once it has stood
+still inside `stationaryRadiusMeters` for `stopTimeoutSeconds`, the collector
+turns off location updates and arms two detectors: a fast one — Activity
+Recognition on Android and `CMMotionActivityManager` on iOS — which notices
+movement after a few metres, and a fallback — a geofence of radius
+`stationaryRadiusMeters` around the anchor, which responds after 200–500 m.
+Whichever fires first wakes the collector.
 
-`GeoTrackingStatus.isMoving` говорит, включён ли сейчас сбор, а
-`motionPermission` — работает ли быстрый детектор. `denied` означает, что трек
-начнётся примерно через 200 м после выхода: это единственное, что стоит
-объяснить пользователю. `unavailable` — детектора на устройстве нет вовсе (нет
-сопроцессора движения на iOS, нет Play Services на Android), и спрашивать
-разрешение бессмысленно.
+`GeoTrackingStatus.isMoving` reports whether collection is currently on, and
+`motionPermission` reports whether the fast detector is working. `denied`
+means the track will resume roughly 200 m after the user leaves — the one
+thing worth explaining to them. `unavailable` means the device has no
+detector at all (no motion coprocessor on iOS, no Play Services on Android),
+and asking for the permission would be pointless.
 
-`stopTimeoutSeconds: 0` выключает машину целиком: GPS горит всю сессию. Это
-то, что нужно приложению, показывающему чужую позицию в реальном времени — и
-ровно то, чего не должен делать записыватель маршрута. Ноль здесь означает
-«выключено», а не «останавливаться немедленно», как и ноль у
+`stopTimeoutSeconds: 0` turns the whole state machine off: the GPS stays on
+for the entire session. That is what an app showing someone else's live
+position needs — and exactly what a route recorder should not do. Zero here
+means "disabled", not "stop immediately", the same convention as zero for
 `elasticityMultiplier`.
 
-Машина состояний работает **только под `Always`**. Под `whenInUse` выключенный
-GPS будить некому: геозона требует фоновой геолокации, а приложения на экране в
-этот момент по определению нет.
+The state machine only runs **under `Always`**. Under `whenInUse` there is
+nobody to wake a switched-off GPS: the geofence requires background location,
+and by definition there is no foregrounded app at that moment.
 
-Сервис на Android в состоянии stationary остаётся живым — гасится только GPS.
-Уведомление и foreground-состояние это то, через что детектор вообще может
-достучаться до коллектора: перезапуск foreground-сервиса из фона Android 12+
-запрещает.
+The Android service in the stationary state stays alive — only the GPS is
+switched off. The notification and the foreground state are what let the
+detector reach the collector at all: Android 12+ forbids restarting a
+foreground service from the background.
 
-iOS требует ключ `NSMotionUsageDescription` в Info.plist хоста — без него
-приложение падает при первом обращении к CoreMotion. Android объявляет
-`ACTIVITY_RECOGNITION` сам и спрашивает его при `start()`.
+iOS requires the `NSMotionUsageDescription` key in the host's Info.plist —
+without it the app crashes on the first call to CoreMotion. Android declares
+`ACTIVITY_RECOGNITION` itself and asks for it at `start()`.
 
-### Как скорость разрежает точки
+### How speed thins out points
 
-`distanceFilterMeters` — база, а не константа. Начиная с шага пешехода фильтр
-растёт пропорционально скорости: на 90 км/ч точка пишется примерно раз в 360 м
-вместо каждых 20. Потолок — 500 м, чтобы одна ошибочная скорость (глюк GPS,
-заявляющий 300 м/с) не выключила трекинг совсем. `elasticityMultiplier: 0`
-отключает растяжение целиком — это «выключено», а не «фильтр в ноль метров».
+`distanceFilterMeters` is a baseline, not a constant. Starting from walking
+pace, the filter grows in proportion to speed: at 90 km/h a point is written
+roughly once every 360 m instead of every 20. The ceiling is 500 m, so one
+erroneous speed reading (a GPS glitch claiming 300 m/s) does not turn
+tracking off entirely. `elasticityMultiplier: 0` disables the stretching
+altogether — that is "disabled", not "filter set to zero metres".
 
-На Android значение округляется до ступеней `base × {1, 2, 5, 10, 20}`: там
-смена фильтра означает пересоздание запроса на обновления, и делать это на
-каждый фикс дороже, чем то, что растяжение экономит. На iOS присваивается как
-есть — это одно присваивание.
+On Android the value is rounded to steps of `base × {1, 2, 5, 10, 20}`:
+there, changing the filter means recreating the update request, and doing
+that on every fix costs more than the stretching saves. On iOS it is
+assigned as-is — that is a single assignment.
 
-Растяжение работает на любой авторизации, в отличие от машины состояний: оно
-ничего не выключает и будить его не нужно.
+The stretching works under any authorization, unlike the state machine: it
+does not turn anything off and does not need waking.
 
-### Что происходит с батчем, который бэкенд не принял
+### What happens to a batch the backend rejects
 
-Удаляется только то, что бэкенд подтвердил (2xx). Всё остальное остаётся в
-очереди — политика та же, что у `flutter_background_geolocation`.
+Only what the backend confirms (2xx) gets deleted. Everything else stays in
+the queue — the same policy `flutter_background_geolocation` uses.
 
-| Ответ | Что делает аплоадер |
+| Response | What the uploader does |
 |---|---|
-| 2xx | удаляет точки |
-| 401 | останавливает выгрузку до свежих учётных данных |
-| 408, 429 | повторяет с бэкоффом |
-| прочие 4xx | **откладывает батч на час**, точки остаются |
-| 5xx и сетевые сбои | повторяет с бэкоффом |
+| 2xx | deletes the points |
+| 401 | halts uploading until fresh credentials arrive |
+| 408, 429 | retries with backoff |
+| other 4xx | **defers the batch for an hour**, points remain |
+| 5xx and network failures | retries with backoff |
 
-Раньше «прочие 4xx» удаляли батч навсегда. При `batchSize = 50` одна точка с
-битыми координатами уносила сорок девять здоровых, а единственным следом была
-строка `http 422` в статусе.
+Previously, "other 4xx" deleted the batch permanently. With `batchSize = 50`,
+one point with broken coordinates took forty-nine healthy ones down with it,
+and the only trace left was an `http 422` line in the status.
 
-Отсрочка, а не просто удержание, — потому что очередь читается с головы. Батч,
-который бэкенд не примет никогда, иначе перечитывался бы вечно и не пускал
-вперёд ничего нового. Отложенным строкам проставляется `deferred_until_millis`,
-и `oldest()` их пропускает, пока время не пришло. Повторный отказ переписывает
-окно, а не прибавляет к нему.
+It is a deferral, not just a hold, because the queue is read from the head.
+A batch the backend will never accept would otherwise be re-read forever and
+block everything new behind it. Deferred rows get a `deferred_until_millis`
+stamp, and `oldest()` skips them until that time arrives. A repeated
+rejection rewrites the window rather than extending it.
 
-Границы очереди (`queueMaxPoints`, `queueMaxAgeDays`) остаются последним
-словом: батч, который не примут никогда, в итоге вытесняется по возрасту.
+The queue ceilings (`queueMaxPoints`, `queueMaxAgeDays`) remain the final
+word: a batch that will never be accepted eventually gets evicted by age.
 
-`queuedPoints` в статусе считает и отложенные — вопрос, на который он отвечает,
-это «сколько ещё не доехало».
+`queuedPoints` in the status counts deferred points too — the question it
+answers is "how much still hasn't made it through".
 
-### Свежесть против дешёвого бэклога
+### Freshness vs. cheap backlog
 
-Две разные работы, и до 0.8.0 они жили в одном числе. `sendAfterPoints`
-отвечает на «когда уходит запрос», `batchSize` — на «сколько точек он несёт».
+Two different jobs, and before 0.8.0 they lived in a single number.
+`sendAfterPoints` answers "when does the request go out", `batchSize`
+answers "how many points does it carry".
 
 ```dart
 GeoUploadConfig.standard(
   url: …,
   headers: …,
   notification: …,
-  sendAfterPoints: 1,   // запрос уходит, как только точка записана
-  batchSize: 50,        // но накопленное офлайн уезжает по пятьдесят
+  sendAfterPoints: 1,   // the request leaves as soon as a point is recorded
+  batchSize: 50,        // but anything accumulated offline leaves fifty at a time
 )
 ```
 
-`sendAfterPoints: 1` — это то, что нужно экрану с чужой позицией на карте:
-бэкенд отстаёт не больше чем на один фикс. Стоит это одного запроса на
-записанный фикс, пока устройство едет — за 20-метровым фильтром примерно один
-на двадцать метров, — и нуля, пока стоит: неподвижный коллектор точек не пишет.
+`sendAfterPoints: 1` is what a screen showing someone else's position on a
+map needs: the backend lags by at most one fix. It costs one request per
+recorded fix while the device is moving — with a 20-metre filter, roughly one
+every twenty metres — and zero while stationary: a stationary collector does
+not write points.
 
-Опускать вместе с ним `batchSize` не нужно и вредно. Час офлайна — это ~180
-точек в очереди; при `batchSize: 1` они уедут ста восемьюдесятью
-последовательными запросами, и одного сбоя среди них хватит, чтобы положить всю
-очередь на бэкофф.
+Lowering `batchSize` along with it is unnecessary and harmful. An hour
+offline is ~180 queued points; at `batchSize: 1` they would leave as a
+hundred and eighty sequential requests, and a single failure among them is
+enough to put the whole queue into backoff.
 
-Эластичность влияет на то, что считается перемещением: на 90 км/ч фильтр
-растянут примерно до 360 м, так что «каждое перемещение» там — каждые 360 м.
-`GeoMotionConfig(elasticityMultiplier: 0)` отключает растяжение, если позиция на
-скорости нужна такой же частой, как пешком.
+Elasticity affects what counts as movement: at 90 km/h the filter is
+stretched to roughly 360 m, so "every movement" there means every 360 m.
+`GeoMotionConfig(elasticityMultiplier: 0)` disables the stretching if the
+position at speed needs to be as frequent as on foot.
 
-### Когда уходит очередь
+### When the queue drains
 
-Пять триггеров:
+Five triggers:
 
-- набрался `batchSize`;
-- прошёл `uploadIntervalSeconds` (свип коллектора);
-- **появилась сеть** — `NWPathMonitor` на iOS, `ConnectivityManager` на Android;
-- периодический воркер WorkManager, не чаще раза в 15 минут (только Android);
-- запуск сессии.
+- `batchSize` was reached;
+- `uploadIntervalSeconds` elapsed (the collector's sweep);
+- **the network came back** — `NWPathMonitor` on iOS,
+  `ConnectivityManager` on Android;
+- WorkManager's periodic worker, no more often than every 15 minutes
+  (Android only);
+- session start.
 
-Слушатель сети живёт ровно столько же, сколько свип: монитор, переживший
-`stop()`, будил бы выгрузку для сессии, которой уже нет. На Android constraint
-`NetworkType.CONNECTED` у воркера остаётся — он отвечает за «не запускать без
-сети», а колбэк за «сеть появилась»; это разные вопросы.
+The network listener lives exactly as long as the sweep does: a monitor that
+outlived `stop()` would wake an upload for a session that no longer exists.
+On Android the worker's `NetworkType.CONNECTED` constraint remains — it
+answers "don't run without a network", while the callback answers "the
+network just appeared"; those are different questions.
 
-### Наблюдаемость
+### Observability
 
-Отказы этого пакета случаются, когда Dart-изолята нет в живых, — то есть ровно
-тогда, когда `points` и `statusChanges` ничего не ловят. Поэтому нативная
-сторона ведёт свой лог, переживающий смерть процесса, в отдельном файле базы
-на каждой платформе.
+This package's failures happen when the Dart isolate is not alive — which is
+exactly when `points` and `statusChanges` catch nothing. So the native side
+keeps its own log, one that survives the process dying, in a separate
+database file on each platform.
 
-Лог — **outbox, а не архив**: он копит записи до того, как их кто-нибудь
-заберёт. Чтение в две фазы, потому что падение между получением и записью
-потеряло бы ровно то, ради чего лог заведён:
+The log is an **outbox, not an archive**: it accumulates entries until
+someone collects them. Reading happens in two phases, because a crash
+between fetching and recording would lose exactly the thing the log exists
+for:
 
 ```dart
-final entries = await tracker.readLog(limit: 500); // читает, не удаляет
+final entries = await tracker.readLog(limit: 500); // reads, does not delete
 if (entries.isEmpty) return;
-// … записи уходят туда, где их не потерять
-await tracker.dropLog(untilId: entries.last.id);   // теперь можно удалить
+// … entries go wherever they will not be lost
+await tracker.dropLog(untilId: entries.last.id);   // now safe to delete
 ```
 
-`dropLog` ограничен курсором, а не чистит таблицу: коллектор продолжает писать
-всё время, пока идёт вычитывание, и те записи не видел никто.
+`dropLog` is bounded by a cursor rather than clearing the table: the
+collector keeps writing the whole time the read is in progress, and nobody
+has seen those entries.
 
-Теги событий: `session.start`, `session.stop`, `session.resume`,
+Event tags: `session.start`, `session.stop`, `session.resume`,
 `config.saved`, `permission.changed`, `fix.accepted`, `fix.rejected`,
 `queue.enqueued`, `upload.attempt`, `upload.result`, `upload.giveup`,
 `motion.stationary`, `motion.moving`, `motion.permission`,
 `filter.elasticity`.
-`event` отделён от `message`, чтобы фильтровать без разбора текста.
+`event` is kept separate from `message` so filtering does not require
+parsing text.
 
-**Чего лог не содержит никогда:** заголовков запроса. Там bearer-токен. URL
-пишется — он и так в статусе. Тело ответа пишется только на не-2xx и режется
-до 500 символов: именно оно превращает `http 422` в `points.bad_coordinates`.
+**What the log never contains:** request headers. That is where the bearer
+token lives. The URL is written — it is in the status anyway. The response
+body is written only on non-2xx and truncated to 500 characters: that is
+what turns an `http 422` into `points.bad_coordinates`.
 
-Границы — 2000 строк или 3 дня, что раньше, применяются на каждой записи.
-`reset()` чистит лог вместе с очередью: записи содержат координаты.
+Limits are 2000 rows or 3 days, whichever comes first, applied on every
+write. `reset()` clears the log along with the queue: entries contain
+coordinates.
 
-### Как настроить на реальное время
+### Tuning for real-time
 
-Пакет по умолчанию собран под запись маршрута. Приложению, которому нужна чужая
-позиция «сейчас», нужен противоположный набор:
+The package ships tuned for recording a route by default. An app that needs
+someone else's position "right now" needs the opposite set:
 
 ```dart
 GeoUploadConfig.standard(
   url: …,
   headers: …,
   notification: …,
-  distanceFilterMeters: 0,   // без порога по расстоянию
-  minIntervalSeconds: 0,     // как быстро отдаёт платформа, около 1 Гц
-  sendAfterPoints: 1,        // запрос с каждой точкой
+  distanceFilterMeters: 0,   // no distance threshold
+  minIntervalSeconds: 0,     // as fast as the platform delivers, roughly 1 Hz
+  sendAfterPoints: 1,        // a request with every point
   filter: GeoFilterConfig.standard(minDisplacementMeters: 0),
   motion: GeoMotionConfig.standard(
-    stopTimeoutSeconds: 0,     // не гасить GPS
-    elasticityMultiplier: 0,   // не разрежать точки на скорости
+    stopTimeoutSeconds: 0,     // never switch off the GPS
+    elasticityMultiplier: 0,   // never thin points out at speed
   ),
 )
 ```
 
-Чего это стоит, прямым текстом: непрерывный GPS всю сессию — самое дорогое, что
-можно попросить у телефона в фоне; примерно один HTTP-запрос в секунду на
-активного пользователя; и неподвижный маркер будет дрожать на несколько метров,
-потому что порога, который это гасил, больше нет — остаётся только сглаживание.
+What this costs, plainly: continuous GPS for the whole session — the most
+expensive thing you can ask of a phone in the background; roughly one HTTP
+request per second per active user; and a stationary marker will jitter by a
+few metres, because the threshold that used to absorb that is gone — only
+the smoother is left.
 
-Потолок транспорта: аплоадер последовательный, и если запрос летит дольше, чем
-приходит следующая точка, очередь начнёт склеивать их по две-три. Это не
-поломка, а деградация в правильную сторону. Секунда — примерно предел для
-HTTP-на-точку; ниже нужен другой транспорт, а не другие настройки.
+The transport ceiling: the uploader is sequential, and if a request takes
+longer to complete than it takes for the next point to arrive, the queue
+starts coalescing them two or three at a time. That is not a bug, it is
+degradation in the right direction. A second is roughly the limit for
+HTTP-per-point; below that you need a different transport, not different
+settings.
 
 ### Fix filtering
 
