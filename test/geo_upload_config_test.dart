@@ -58,4 +58,94 @@ void main() {
       'motion_elasticity_multiplier': 1.0,
     });
   });
+
+  test('the send threshold defaults to the batch size', () {
+    // Two jobs used to live in `batchSize`, and the default keeps the old
+    // behaviour for anyone who has not thought about the difference.
+    expect(standard().sendAfterPoints, 50);
+    expect(standard().toMap()['send_after_points'], 50);
+  });
+
+  test('a threshold of one sends every fix without shrinking the batch', () {
+    // What a live-position screen needs: post the moment a point exists, but
+    // let a backlog leave fifty at a time rather than one round trip each.
+    final config = GeoUploadConfig.standard(
+      sessionId: 'consent-42',
+      url: 'https://example.com/points',
+      headers: const <String, String>{},
+      notification: GeoNotificationConfig.standard(
+        title: 'Tracking',
+        body: 'Recording your route',
+        channelName: 'Location tracking',
+      ),
+      sendAfterPoints: 1,
+    );
+
+    expect(config.sendAfterPoints, 1);
+    expect(config.batchSize, 50);
+    expect(config.toMap()['send_after_points'], 1);
+    expect(config.toMap()['batch_size'], 50);
+  });
+
+  test('the notification config states what the user will see', () {
+    final map = GeoUploadConfig.standard(
+      sessionId: 'consent-42',
+      url: 'https://example.com/points',
+      headers: const <String, String>{},
+      notification: GeoNotificationConfig.standard(
+        title: 'Запись маршрута',
+        body: 'Attractor записывает ваш маршрут',
+        channelName: 'Запись маршрута',
+        smallIcon: 'ic_stat_tracking',
+        importance: GeoNotificationImportance.normal,
+        tapOpensApp: false,
+      ),
+    ).toMap();
+
+    expect(map['notification_title'], 'Запись маршрута');
+    expect(map['notification_channel_name'], 'Запись маршрута');
+    expect(map['notification_small_icon'], 'ic_stat_tracking');
+    expect(map['notification_importance'], 'normal');
+    expect(map['notification_tap_opens_app'], isFalse);
+  });
+
+  test('an unnamed icon travels as an empty string, not as a missing key', () {
+    // The native side reads the key and falls back on its own; a key that
+    // sometimes exists would make that two code paths instead of one.
+    expect(
+      standard().toMap()['notification_small_icon'],
+      '',
+    );
+  });
+
+  test('standard carries the motion defaults onto the wire', () {
+    final map = standard().toMap();
+
+    expect(map['motion_stop_timeout_seconds'], 300);
+    expect(map['motion_stationary_radius_meters'], 150.0);
+    expect(map['motion_elasticity_multiplier'], 1.0);
+  });
+
+  test('an overridden motion config replaces the defaults', () {
+    final map = GeoUploadConfig.standard(
+      sessionId: 'consent-42',
+      url: 'https://example.com/points',
+      headers: const <String, String>{},
+      notification: GeoNotificationConfig.standard(
+        title: 'Tracking',
+        body: 'Recording your route',
+        channelName: 'Location tracking',
+      ),
+      motion: GeoMotionConfig.standard(
+        stopTimeoutSeconds: 60,
+        stationaryRadiusMeters: 200,
+        elasticityMultiplier: 0,
+      ),
+    ).toMap();
+
+    expect(map['motion_stop_timeout_seconds'], 60);
+    expect(map['motion_stationary_radius_meters'], 200.0);
+    // Zero is a value, not a missing field: it means "no elasticity".
+    expect(map['motion_elasticity_multiplier'], 0.0);
+  });
 }
