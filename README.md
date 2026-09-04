@@ -21,6 +21,7 @@ backgrounded or evicted from memory, and resumes by itself afterwards.
 - [Tuning](#tuning)
 - [Store review](#store-review)
 - [Testing](#testing)
+- [Also from Bangert Studio](#also-from-bangert-studio)
 
 ## Install
 
@@ -771,3 +772,27 @@ permission changes and token renewal.
 
 An emulator or simulator will not do: neither reproduces Doze, memory
 eviction, or a moving GPS fix.
+
+---
+
+## Also from Bangert Studio
+
+This package is one of a family of open-source Flutter/Dart packages
+published under the verified
+[`contributors.info`](https://pub.dev/publishers/contributors.info/packages)
+publisher on pub.dev. [`PACKAGES.md`](https://github.com/AlexHCJP/background_geo_tracker/blob/main/PACKAGES.md)
+has a longer write-up of each; this is the compact version.
+
+| Package | What it does |
+|---|---|
+| [`fform`](https://pub.dev/packages/fform) | Form state management: typed fields, sync/async validation, streams drive the UI. |
+| [`fform_validator`](https://pub.dev/packages/fform_validator) | Standalone string validators (email, URL, IP, credit card, length…) for any form. |
+| [`depend`](https://pub.dev/packages/depend) | Dependency injection through `InheritedWidget`, with lazy and async service creation. |
+| [`apollon`](https://pub.dev/packages/apollon) | A minimal, Riverpod-inspired state container built on `ChangeNotifier`. |
+| [`pike`](https://pub.dev/packages/pike) | Event-driven state management — handlers react to events instead of state being set directly. |
+| [`safe_route`](https://pub.dev/packages/safe_route) | Flutter navigation with route arguments and results checked at compile time. |
+| [`map_route`](https://pub.dev/packages/map_route) | Visualises an app's route graph while developing navigation. |
+| [`responsive_breakpoints`](https://pub.dev/packages/responsive_breakpoints) | Responsive-layout breakpoints as a `ThemeExtension` — Tailwind, Bootstrap, Material and Ant presets included. |
+| [`enum_picker`](https://pub.dev/packages/enum_picker) | A Cupertino-style bottom-sheet picker for any Dart enum. |
+| [`markup_analyzer`](https://pub.dev/packages/markup_analyzer) | An analyzer plugin that flags hard-coded strings passed to widgets, to enforce localization. |
+| [`herdsman`](https://pub.dev/packages/herdsman) | Manages Git hooks from a checked-in directory — a Husky equivalent for Dart/Flutter. |
