@@ -37,8 +37,11 @@ void main() {
         sessionId: 'integration-test-session',
         url: 'https://example.invalid/v1/tracking/points',
         headers: const <String, String>{'Authorization': 'Bearer test'},
-        notificationTitle: 'Tracking',
-        notificationBody: 'Recording your route',
+        notification: GeoNotificationConfig.standard(
+          title: 'Tracking',
+          body: 'Recording your route',
+          channelName: 'Route tracking',
+        ),
       ),
     );
 

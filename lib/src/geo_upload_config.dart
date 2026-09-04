@@ -1,3 +1,7 @@
+import 'package:background_geo_tracker/src/geo_filter_config.dart';
+import 'package:background_geo_tracker/src/geo_motion_config.dart';
+import 'package:background_geo_tracker/src/geo_notification_config.dart';
+
 /// How the native tracker collects points and where it sends them.
 ///
 /// The package knows nothing about any particular backend — the URL, the
@@ -77,11 +81,13 @@ class GeoUploadConfig {
     required this.distanceFilterMeters,
     required this.minIntervalSeconds,
     required this.batchSize,
+    required this.sendAfterPoints,
     required this.uploadIntervalSeconds,
     required this.queueMaxPoints,
     required this.queueMaxAgeDays,
-    required this.notificationTitle,
-    required this.notificationBody,
+    required this.filter,
+    required this.motion,
+    required this.notification,
   });
 
   /// The collection and batching defaults the design settled on, tuned for a
@@ -91,25 +97,30 @@ class GeoUploadConfig {
   /// The defaults live here and nowhere else, so an app that disagrees with
   /// one of them says so in one word rather than restating the other five.
   ///
-  /// [batchSize] is the one worth understanding before changing, because it
-  /// does two jobs: it is how many points a request carries, *and* how many
-  /// have to be queued before the arrival of a point triggers a send on its
-  /// own. Setting it to 1 therefore means "post every fix the moment it is
-  /// recorded" — which is the freshest a position can be, and also one HTTP
-  /// request per fix. Behind a 20 m filter that is a request every 20 m
-  /// walked, and a backlog drains one point per round trip.
+  /// [sendAfterPoints] is the one worth understanding before changing. It is
+  /// how fresh the stored position is: at 1 a request leaves the moment a
+  /// point exists, so the backend is never more than one fix behind; at
+  /// [batchSize] a point waits for forty-nine more or for
+  /// [uploadIntervalSeconds], whichever comes first.
+  ///
+  /// It used to be the same number as [batchSize], and that made freshness
+  /// unaffordable: buying it meant shrinking the request too, so an hour
+  /// offline drained as one round trip per point and a single failure among
+  /// them put the whole queue on the retry backoff.
   factory GeoUploadConfig.standard({
     required String sessionId,
     required String url,
     required Map<String, String> headers,
-    required String notificationTitle,
-    required String notificationBody,
+    required GeoNotificationConfig notification,
     int distanceFilterMeters = 20,
     int minIntervalSeconds = 10,
     int batchSize = 50,
+    int? sendAfterPoints,
     int uploadIntervalSeconds = 60,
     int queueMaxPoints = 20000,
     int queueMaxAgeDays = 7,
+    GeoFilterConfig? filter,
+    GeoMotionConfig? motion,
   }) => GeoUploadConfig(
     sessionId: sessionId,
     url: url,
@@ -117,11 +128,16 @@ class GeoUploadConfig {
     distanceFilterMeters: distanceFilterMeters,
     minIntervalSeconds: minIntervalSeconds,
     batchSize: batchSize,
+    // Defaults to the batch size, which is what this setting used to be
+    // half of — so a caller who has not thought about the difference
+    // keeps exactly the behaviour they had.
+    sendAfterPoints: sendAfterPoints ?? batchSize,
     uploadIntervalSeconds: uploadIntervalSeconds,
     queueMaxPoints: queueMaxPoints,
     queueMaxAgeDays: queueMaxAgeDays,
-    notificationTitle: notificationTitle,
-    notificationBody: notificationBody,
+    filter: filter ?? GeoFilterConfig.standard(),
+    motion: motion ?? GeoMotionConfig.standard(),
+    notification: notification,
   );
 
   /// Backend-issued identifier of the one live-sharing session these points
@@ -157,8 +173,24 @@ class GeoUploadConfig {
   /// noise.
   final int minIntervalSeconds;
 
-  /// Upload once this many points are queued…
+  /// Ceiling on how many points one request carries. Not a trigger — see
+  /// [sendAfterPoints] for that.
   final int batchSize;
+
+  /// How many points have to be queued before their arrival sends a request
+  /// on its own.
+  ///
+  /// 1 means every fix posts as it is recorded, which is what a screen showing
+  /// somebody's live position needs. It costs one request per fix while the
+  /// device is moving — behind a 20 m filter, one per 20 m walked — and
+  /// nothing at all while it stands still, because a stationary collector
+  /// produces no points.
+  ///
+  /// Deliberately separate from [batchSize]: a low threshold buys freshness,
+  /// a high batch keeps a backlog cheap, and the two questions have different
+  /// right answers. A queue that built up offline still leaves [batchSize] at
+  /// a time however low this is.
+  final int sendAfterPoints;
 
   /// …or once this long has passed, whichever comes first.
   ///
@@ -178,13 +210,34 @@ class GeoUploadConfig {
   /// not worth uploading.
   final int queueMaxAgeDays;
 
-  /// Title of the Android foreground-service notification, which the OS
-  /// requires to be visible for the whole session.
-  final String notificationTitle;
+  /// What the collector discards before a fix reaches the queue, and how hard
+  /// it smooths what survives.
+  ///
+  /// Its own object rather than four more fields here, because these four are
+  /// read and reasoned about together — a threshold means nothing without the
+  /// other three beside it — and because everything else on this class is
+  /// about *where points go*, while these are about *which points exist*.
+  final GeoFilterConfig filter;
 
-  /// Body line under [notificationTitle]. iOS shows no notification of its
-  /// own, so both are Android-only.
-  final String notificationBody;
+  /// When the collector may switch the GPS off, and how speed spaces points
+  /// out while it is on.
+  ///
+  /// Its own object for the same reason [filter] is one: these three are read
+  /// together and mean nothing apart, and everything else on this class is
+  /// about where points go rather than when they are taken.
+  final GeoMotionConfig motion;
+
+  /// What the Android foreground-service notification says and looks like.
+  ///
+  /// Its own object for the same reason [filter] and [motion] are: the six
+  /// fields are one decision about one surface. Android-only — iOS shows no
+  /// notification for a location session and ignores all of it.
+  ///
+  /// Required with no default, unlike the other two, because half of it is
+  /// user-visible copy: the package has no locale to write it in, and a
+  /// plausible English default is how a library's own words end up shipping in
+  /// somebody's Russian app.
+  final GeoNotificationConfig notification;
 
   /// The form the method channel carries to the native side. snake_case
   /// because Kotlin and Swift read these keys by name.
@@ -195,11 +248,13 @@ class GeoUploadConfig {
     'distance_filter_meters': distanceFilterMeters,
     'min_interval_seconds': minIntervalSeconds,
     'batch_size': batchSize,
+    'send_after_points': sendAfterPoints,
     'upload_interval_seconds': uploadIntervalSeconds,
     'queue_max_points': queueMaxPoints,
     'queue_max_age_days': queueMaxAgeDays,
-    'notification_title': notificationTitle,
-    'notification_body': notificationBody,
+    ...filter.toMap(),
+    ...motion.toMap(),
+    ...notification.toMap(),
   };
 }
 

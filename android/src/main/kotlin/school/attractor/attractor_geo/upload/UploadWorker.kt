@@ -25,6 +25,7 @@ import school.attractor.attractor_geo.GeoEventBus
 import school.attractor.attractor_geo.GeoStatus
 import school.attractor.attractor_geo.db.GeoDatabase
 import school.attractor.attractor_geo.db.PointQueue
+import school.attractor.attractor_geo.log.GeoLogDatabase
 
 /**
  * Drains the queue. Runs under WorkManager so it survives process death and
@@ -37,17 +38,26 @@ class UploadWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val config = GeoConfigStore(applicationContext)
+        val logs = GeoLogDatabase.open(applicationContext).store()
+
+        // Every early return below ends the drain, and each of them is a
+        // reason a queue can grow while the collector looks healthy.
+        fun giveUp(reason: String): Result {
+            config.lastUpload = reason
+            logs.write(
+                System.currentTimeMillis(), "warning", "upload.giveup", reason,
+            )
+            return Result.success()
+        }
         // Each of these ends the drain, and each used to end it in silence. A
         // queue that grows while the collector reports itself healthy is the
         // symptom of every one of them, so the reason has to survive the
         // return — see `GeoTrackingStatus.lastUpload`.
         if (!config.isConfigured()) {
-            config.lastUpload = "not configured"
-            return@withContext Result.success()
+            return@withContext giveUp("not configured")
         }
         if (config.authFailed) {
-            config.lastUpload = "halted: credentials refused"
-            return@withContext Result.success()
+            return@withContext giveUp("halted: credentials refused")
         }
         // An empty or malformed endpoint makes `url()` throw, and it throws
         // `IllegalArgumentException` — which the `IOException` catch below
@@ -55,18 +65,19 @@ class UploadWorker(
         // while the collector went on filling a queue that can never be sent.
         val endpoint = config.url.toHttpUrlOrNull()
         if (endpoint == null) {
-            config.lastUpload = if (config.url.isEmpty()) {
-                "no url — never configured"
-            } else {
-                "bad url: ${config.url}"
-            }
-            return@withContext Result.success()
+            return@withContext giveUp(
+                if (config.url.isEmpty()) {
+                    "no url — never configured"
+                } else {
+                    "bad url: ${config.url}"
+                },
+            )
         }
 
         val queue = PointQueue(GeoDatabase.open(applicationContext).points())
 
         while (true) {
-            val batch = queue.oldest(config.batchSize)
+            val batch = queue.oldest(config.batchSize, System.currentTimeMillis())
             if (batch.isEmpty()) return@withContext Result.success()
 
             val request = Request.Builder()
@@ -82,6 +93,12 @@ class UploadWorker(
                 }
                 .build()
 
+            val startedAt = System.currentTimeMillis()
+            logs.write(
+                startedAt, "info", "upload.attempt",
+                "${batch.size} points → $endpoint",
+            )
+
             val outcome = try {
                 http.newCall(request).execute().use {
                     val classified = UploadPolicy.classify(it.code)
@@ -90,20 +107,52 @@ class UploadWorker(
                     } else {
                         "http ${it.code}"
                     }
+                    // Body only on a non-2xx, and truncated: it is what turns
+                    // "http 422" into "points.bad_coordinates". A 2xx body is
+                    // noise, and any body at all is data from the server.
+                    val detail = if (classified == UploadOutcome.SUCCESS) {
+                        ""
+                    } else {
+                        " " + (it.body?.string() ?: "").take(500)
+                    }
+                    logs.write(
+                        System.currentTimeMillis(),
+                        if (classified == UploadOutcome.SUCCESS) "info" else "warning",
+                        "upload.result",
+                        "http ${it.code} in " +
+                            "${System.currentTimeMillis() - startedAt}ms " +
+                            "${classified.name}$detail",
+                    )
                     classified
                 }
             } catch (e: IOException) {
                 config.lastUpload = "network: ${e.message ?: "failed"}"
+                logs.write(
+                    System.currentTimeMillis(), "warning", "upload.result",
+                    "network after ${System.currentTimeMillis() - startedAt}ms: " +
+                        (e.message ?: "failed"),
+                )
                 UploadOutcome.RETRY
             }
 
             when (outcome) {
                 UploadOutcome.SUCCESS -> queue.drop(batch.map { it.id })
 
-                // Dropping the batch is deliberate: a permanently rejected
-                // batch would otherwise retry forever and block every point
-                // behind it.
-                UploadOutcome.POISONED -> queue.drop(batch.map { it.id })
+                // Stood down rather than deleted. The blocking this used to
+                // prevent is real — the queue is read from the head, so a
+                // batch the backend never accepts would be re-read forever —
+                // but the queue already bounds itself by rows and by age, so
+                // nothing has to be thrown away to keep it from growing.
+                UploadOutcome.DEFERRED -> {
+                    val until = System.currentTimeMillis() +
+                        UploadPolicy.DEFER_WINDOW_MILLIS
+                    queue.defer(batch.map { it.id }, until)
+                    logs.write(
+                        System.currentTimeMillis(), "warning", "upload.deferred",
+                        "${batch.size} points stood down for " +
+                            "${UploadPolicy.DEFER_WINDOW_MILLIS / 60_000}min",
+                    )
+                }
 
                 UploadOutcome.AUTH_FAILED -> {
                     config.authFailed = true
@@ -113,7 +162,27 @@ class UploadWorker(
                     return@withContext Result.success()
                 }
 
-                UploadOutcome.RETRY -> return@withContext Result.retry()
+                // Handed back to WorkManager only for as long as its schedule
+                // is the better one. `enqueueNow` is unique work under KEEP,
+                // so while a retry sits in the queue every other trigger —
+                // the batch filling up, the collector's own sweep — is
+                // dropped on the floor, and the exponential ladder becomes
+                // the *only* way anything gets sent. Left uncapped it reaches
+                // WorkManager's five-hour ceiling, so a queue that failed
+                // once at 09:00 waits until the afternoon on a network that
+                // came back at 09:01. Capped, the unique work clears and the
+                // next sweep re-enqueues within `uploadIntervalSeconds`.
+                UploadOutcome.RETRY -> return@withContext if (
+                    runAttemptCount < MAX_RETRY_ATTEMPTS
+                ) {
+                    Result.retry()
+                } else {
+                    logs.write(
+                        System.currentTimeMillis(), "warning", "upload.giveup",
+                        "retries exhausted after $runAttemptCount attempts",
+                    )
+                    Result.success()
+                }
             }
         }
 
@@ -125,6 +194,17 @@ class UploadWorker(
     companion object {
         private const val PERIODIC = "attractor_geo_upload_periodic"
         private const val ONE_SHOT = "attractor_geo_upload_now"
+
+        /**
+         * How many times a run may hand itself back to WorkManager before the
+         * schedule returns to the collector's sweep.
+         *
+         * Three, on the 30-second base below, tops the ladder out at about
+         * two minutes — long enough to ride out the blip that a retry is for,
+         * short enough that a longer outage is waited out by the sweep, which
+         * re-enqueues on the same network constraint anyway.
+         */
+        private const val MAX_RETRY_ATTEMPTS = 3
 
         /**
          * One client for every run. WorkManager builds a fresh worker per

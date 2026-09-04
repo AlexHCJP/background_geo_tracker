@@ -37,6 +37,11 @@ final class GeoConfigStore {
             config["batch_size"] as? Int ?? 50, forKey: key("batch_size")
         )
         defaults.set(
+            config["send_after_points"] as? Int
+                ?? config["batch_size"] as? Int ?? 50,
+            forKey: key("send_after_points")
+        )
+        defaults.set(
             config["upload_interval_seconds"] as? Int ?? 60,
             forKey: key("upload_interval_seconds")
         )
@@ -48,6 +53,28 @@ final class GeoConfigStore {
             config["queue_max_age_days"] as? Int ?? 7,
             forKey: key("queue_max_age_days")
         )
+        for (name, fallback) in Self.filterDefaults {
+            // `as? Double` alone would miss a whole number, which the codec
+            // hands over as Int — a `filter_min_displacement_meters: 1` from
+            // Dart would then silently fall back instead of being honoured.
+            let value = (config[name] as? Double)
+                ?? (config[name] as? NSNumber)?.doubleValue
+                ?? fallback
+            defaults.set(value, forKey: key(name))
+        }
+        defaults.set(
+            config["motion_stop_timeout_seconds"] as? Int ?? 300,
+            forKey: key("motion_stop_timeout_seconds")
+        )
+        for (name, fallback) in Self.motionDefaults {
+            // Same reason as the filter loop above: the codec hands a whole
+            // number over as Int, and `as? Double` alone would miss a
+            // `motion_elasticity_multiplier: 1` from Dart.
+            let value = (config[name] as? Double)
+                ?? (config[name] as? NSNumber)?.doubleValue
+                ?? fallback
+            defaults.set(value, forKey: key(name))
+        }
         defaults.set(true, forKey: key("configured"))
 
         // Fresh credentials are the recovery path out of a 401.
@@ -66,12 +93,29 @@ final class GeoConfigStore {
         Keychain.delete(account: Self.headersAccount)
     }
 
+    /// The filter knobs and what they are worth when nobody said. Kept as one
+    /// list because every place that touches them touches all four.
+    static let filterDefaults: [(String, Double)] = [
+        ("filter_accuracy_threshold_meters", 100),
+        ("filter_min_displacement_meters", 1),
+        ("filter_max_implied_speed_mps", 60),
+        ("filter_kalman_process_noise_mps", 3),
+    ]
+
+    /// The motion knobs that are doubles, and what they are worth when nobody
+    /// said. `motion_stop_timeout_seconds` is an Int and lives beside them.
+    static let motionDefaults: [(String, Double)] = [
+        ("motion_stationary_radius_meters", 150),
+        ("motion_elasticity_multiplier", 1),
+    ]
+
     private static let ownedKeys = [
         "session_id",
         "url",
         "distance_filter_meters",
         "min_interval_seconds",
         "batch_size",
+        "send_after_points",
         "upload_interval_seconds",
         "queue_max_points",
         "queue_max_age_days",
@@ -79,7 +123,9 @@ final class GeoConfigStore {
         "is_tracking",
         "auth_failed",
         "last_upload",
-    ]
+        "motion_stop_timeout_seconds",
+        "is_moving",
+    ] + filterDefaults.map(\.0) + motionDefaults.map(\.0)
 
     var isConfigured: Bool { defaults.bool(forKey: key("configured")) }
 
@@ -100,9 +146,40 @@ final class GeoConfigStore {
     var distanceFilterMeters: Int { int("distance_filter_meters", 20) }
     var minIntervalSeconds: Int { int("min_interval_seconds", 10) }
     var batchSize: Int { int("batch_size", 50) }
+
+    /// How many queued points make an arriving point send a request. Falls
+    /// back to `batchSize`, which is what this used to be half of.
+    var sendAfterPoints: Int { int("send_after_points", batchSize) }
     var uploadIntervalSeconds: Int { int("upload_interval_seconds", 60) }
     var queueMaxPoints: Int { int("queue_max_points", 20000) }
     var queueMaxAgeDays: Int { int("queue_max_age_days", 7) }
+
+    private func double(_ name: String, _ fallback: Double) -> Double {
+        defaults.object(forKey: key(name)) == nil
+            ? fallback
+            : defaults.double(forKey: key(name))
+    }
+
+    var filterAccuracyThresholdMeters: Double {
+        double("filter_accuracy_threshold_meters", 100)
+    }
+    var filterMinDisplacementMeters: Double {
+        double("filter_min_displacement_meters", 1)
+    }
+    var filterMaxImpliedSpeedMps: Double {
+        double("filter_max_implied_speed_mps", 60)
+    }
+    var filterKalmanProcessNoiseMps: Double {
+        double("filter_kalman_process_noise_mps", 3)
+    }
+
+    var motionStopTimeoutSeconds: Int { int("motion_stop_timeout_seconds", 300) }
+    var motionStationaryRadiusMeters: Double {
+        double("motion_stationary_radius_meters", 150)
+    }
+    var motionElasticityMultiplier: Double {
+        double("motion_elasticity_multiplier", 1)
+    }
 
     var headers: [String: String] {
         guard let json = Keychain.get(account: Self.headersAccount),
@@ -117,6 +194,18 @@ final class GeoConfigStore {
     var isTracking: Bool {
         get { defaults.bool(forKey: key("is_tracking")) }
         set { defaults.set(newValue, forKey: key("is_tracking")) }
+    }
+
+    /// Whether the collector is currently asking for fixes. Persisted for the
+    /// same reason `isTracking` is: the answer has to outlive the process that
+    /// decided it. True by default — a session that has never stopped is moving.
+    var isMoving: Bool {
+        get {
+            defaults.object(forKey: key("is_moving")) == nil
+                ? true
+                : defaults.bool(forKey: key("is_moving"))
+        }
+        set { defaults.set(newValue, forKey: key("is_moving")) }
     }
 
     var authFailed: Bool {

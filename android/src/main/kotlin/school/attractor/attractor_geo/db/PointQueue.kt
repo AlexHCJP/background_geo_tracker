@@ -16,7 +16,12 @@ class PointQueue(private val dao: PointDao) {
         }
     }
 
-    fun oldest(limit: Int): List<PointRow> = dao.oldest(limit)
+    fun oldest(limit: Int, nowMillis: Long): List<PointRow> =
+        dao.oldest(limit, nowMillis)
+
+    /** Stands a refused batch down so the queue behind it can move. */
+    fun defer(ids: List<String>, untilMillis: Long) =
+        dao.defer(ids, untilMillis)
 
     fun oldestForSession(sessionId: String, limit: Int): List<PointRow> =
         dao.oldestForSession(sessionId, limit)

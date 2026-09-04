@@ -15,6 +15,10 @@ void main() {
   /// constant because "the platform has nothing" is half of that contract.
   late Map<Object?, Object?>? position;
 
+  /// What the platform answers `readLog` with. A field for the same reason
+  /// [position] is one: "the log is empty" is half of that contract.
+  late List<Object?>? logEntries;
+
   BackgroundGeoTracker controller() => BackgroundGeoTracker(
     methodChannel: methodChannel,
     pointsChannel: pointsChannel,
@@ -47,6 +51,15 @@ void main() {
   setUp(() {
     calls = <MethodCall>[];
     position = positionPayload;
+    logEntries = <Object?>[
+      <Object?, Object?>{
+        'id': 7,
+        'at_millis': 1756000000000,
+        'level': 'error',
+        'event': 'upload.result',
+        'message': 'http 500 in 240ms',
+      },
+    ];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(methodChannel, (call) async {
           calls.add(call);
@@ -54,6 +67,7 @@ void main() {
             'status' => statusPayload,
             'requestPermission' => 'when_in_use',
             'currentPosition' => position,
+            'readLog' => logEntries,
             _ => null,
           };
         });
@@ -69,8 +83,11 @@ void main() {
       sessionId: 'consent-42',
       url: 'https://api.attractor.school/v1/tracking/points',
       headers: const <String, String>{'Authorization': 'Bearer token'},
-      notificationTitle: 'Tracking',
-      notificationBody: 'Recording your route',
+      notification: GeoNotificationConfig.standard(
+        title: 'Tracking',
+        body: 'Recording your route',
+        channelName: 'Location tracking',
+      ),
     );
 
     await controller().configure(config);
@@ -130,5 +147,28 @@ void main() {
 
     expect(identical(geo.points, geo.points), isTrue);
     expect(identical(geo.statusChanges, geo.statusChanges), isTrue);
+  });
+
+  test('readLog decodes the entries and carries its limit', () async {
+    final entries = await controller().readLog(limit: 250);
+
+    expect(calls.single.method, 'readLog');
+    expect(calls.single.arguments, <String, Object?>{'limit': 250});
+    expect(entries.single.id, 7);
+    expect(entries.single.level, GeoLogLevel.error);
+    expect(entries.single.event, 'upload.result');
+  });
+
+  test('an empty log decodes as an empty list, not null', () async {
+    logEntries = null;
+
+    expect(await controller().readLog(), isEmpty);
+  });
+
+  test('dropLog carries the cursor under the wire key', () async {
+    await controller().dropLog(untilId: 91);
+
+    expect(calls.single.method, 'dropLog');
+    expect(calls.single.arguments, <String, Object?>{'until_id': 91});
   });
 }

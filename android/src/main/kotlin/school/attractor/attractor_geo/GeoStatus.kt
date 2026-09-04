@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
+import android.os.PowerManager
 import androidx.core.app.ActivityCompat
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import androidx.core.content.ContextCompat
 
 /**
@@ -62,6 +65,67 @@ object GeoStatus {
         }
     }
 
+    /**
+     * Whether the OS is handing over real coordinates or a rough area.
+     *
+     * `FINE` is the whole test. Android 12 split the runtime prompt into
+     * Precise and Approximate, and the Approximate half grants `COARSE`
+     * alone — which [hasForegroundLocation] accepts, so the session runs and
+     * every fix in it is off by a kilometre or more with nothing else in the
+     * status saying so.
+     */
+    fun preciseLocation(context: Context): Boolean =
+        granted(context, Manifest.permission.ACCESS_FINE_LOCATION)
+
+    /**
+     * Whether the app owes the user an explanation before sending them to
+     * settings for background location.
+     *
+     * True exactly while that is the outstanding step. Android 11 took "Allow
+     * all the time" out of the runtime prompt — settings is the only route —
+     * and requires an educational screen before the redirect. Below API 30 the
+     * prompt still works, so there is nothing to explain and this is false.
+     */
+    fun needsBackgroundRationale(context: Context): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            granted(context, Manifest.permission.ACCESS_FINE_LOCATION) &&
+            !granted(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
+    /** Whether the device is in battery saver. */
+    fun powerSaveMode(context: Context): Boolean =
+        context.getSystemService(PowerManager::class.java)?.isPowerSaveMode
+            ?: false
+
+    /**
+     * Whether Android will leave this app alone when the screen is off. False
+     * is where a background collector quietly loses its wake-ups to Doze.
+     */
+    fun ignoringBatteryOptimizations(context: Context): Boolean {
+        val manager = context.getSystemService(PowerManager::class.java)
+            ?: return false
+        return manager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    /**
+     * Whether the fast movement detector is available to this session.
+     *
+     * Three answers, not two. Without Play Services there is no Activity
+     * Recognition to ask for, and reporting that as `denied` would put a
+     * button in the UI that cannot do anything. Below API 29 the permission is
+     * install-time and always held.
+     */
+    fun motionPermissionName(context: Context): String {
+        val available = GoogleApiAvailability.getInstance()
+            .isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
+        if (!available) return "unavailable"
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return "granted"
+        return if (granted(context, Manifest.permission.ACTIVITY_RECOGNITION)) {
+            "granted"
+        } else {
+            "denied"
+        }
+    }
+
     fun locationEnabled(context: Context): Boolean {
         val manager =
             context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -88,5 +152,16 @@ object GeoStatus {
         // into an answer — see `GeoTrackingStatus` on the Dart side.
         "upload_url" to config.url,
         "last_upload" to config.lastUpload,
+        // The three ways a session can be granted, running, and still not
+        // working. None of them is visible from any other field here.
+        "precise_location" to preciseLocation(context),
+        "needs_background_rationale" to needsBackgroundRationale(context),
+        "power_save_mode" to powerSaveMode(context),
+        "ignoring_battery_optimizations" to
+            ignoringBatteryOptimizations(context),
+        // Why the position has stopped changing, and why the track may start
+        // two blocks late. Neither is visible from any other field.
+        "is_moving" to config.isMoving,
+        "motion_permission" to motionPermissionName(context),
     )
 }

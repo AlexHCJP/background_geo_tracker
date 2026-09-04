@@ -26,6 +26,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import school.attractor.attractor_geo.db.GeoDatabase
 import school.attractor.attractor_geo.db.PointQueue
+import school.attractor.attractor_geo.log.GeoLogDatabase
+import school.attractor.attractor_geo.log.GeoLogRow
 import school.attractor.attractor_geo.upload.UploadWorker
 
 class AttractorGeoPlugin :
@@ -94,6 +96,7 @@ class AttractorGeoPlugin :
                     result.error("bad_arguments", "configure expects a map", null)
                     return
                 }
+
                 val requestedSession = arguments["session_id"] as? String ?: ""
                 if (config.isTracking && requestedSession != config.sessionId) {
                     result.error(
@@ -103,8 +106,19 @@ class AttractorGeoPlugin :
                     )
                     return
                 }
+
                 try {
                     config.save(arguments)
+
+                    GeoLogDatabase.open(context).store().write(
+                        System.currentTimeMillis(),
+                        "info",
+                        "config.saved",
+                        // The URL only. `config.headers` carries a bearer token
+                        // and must never reach the log in any form.
+                        "url=${config.url}",
+                    )
+
                     result.success(null)
                 } catch (error: IllegalArgumentException) {
                     result.error("invalid_config", error.message, null)
@@ -137,16 +151,29 @@ class AttractorGeoPlugin :
                     try {
                         config.isTracking = true
                         GeoTrackingService.start(context)
+
                         requestNotificationsIfMissing()
+                        requestActivityRecognitionIfMissing()
+
+                        GeoLogDatabase.open(context).store().write(
+                            System.currentTimeMillis(),
+                            "info",
+                            "session.start",
+                            "${permissionName()} " +
+                                "precise=${GeoStatus.preciseLocation(context)}",
+                        )
+
                         result.success(null)
                         emitStatus()
                     } catch (error: RuntimeException) {
                         config.isTracking = false
+
                         result.error(
                             "start_failed",
                             error.message ?: "Native location service could not start",
                             null,
                         )
+
                         emitStatus()
                     }
                 }
@@ -157,6 +184,10 @@ class AttractorGeoPlugin :
                 GeoTrackingService.stop(context)
                 UploadWorker.cancelPeriodic(context)
                 UploadWorker.enqueueNow(context)
+                GeoLogDatabase.open(context).store().write(
+                    System.currentTimeMillis(), "info", "session.stop",
+                    "asked by the app",
+                )
                 result.success(null)
                 emitStatus()
             }
@@ -167,6 +198,9 @@ class AttractorGeoPlugin :
                 UploadWorker.cancelAll(context)
                 withContext(Dispatchers.IO) {
                     PointQueue(GeoDatabase.open(context).points()).clear()
+                    // The entries carry coordinates, and those belong to
+                    // whoever recorded them.
+                    GeoLogDatabase.open(context).store().clear()
                 }
                 // Last, so nothing above can read credentials that are on
                 // their way out.
@@ -194,8 +228,32 @@ class AttractorGeoPlugin :
                 result.success(permissionName())
             }
 
+            "readLog" -> scope.launch {
+                val limit = call.argument<Int>("limit") ?: 500
+                val rows = withContext(Dispatchers.IO) {
+                    GeoLogDatabase.open(context).store().read(limit)
+                }
+                result.success(rows.map { it.toEventMap() })
+            }
+
+            "dropLog" -> scope.launch {
+                // Number, not Int: the codec hands whole numbers over as
+                // Integer or Long depending on magnitude, and an autoincrement
+                // id outgrows Int.
+                val untilId = call.argument<Number>("until_id")?.toLong() ?: 0L
+                withContext(Dispatchers.IO) {
+                    GeoLogDatabase.open(context).store().drop(untilId)
+                }
+                result.success(null)
+            }
+
             "openSystemSettings" -> {
                 openSettings()
+                result.success(null)
+            }
+
+            "openBatteryOptimizationSettings" -> {
+                openBatteryOptimizationSettings()
                 result.success(null)
             }
 
@@ -250,6 +308,32 @@ class AttractorGeoPlugin :
     }
 
     /**
+     * The fast half of stop detection, asked for at `start` alongside
+     * notifications.
+     *
+     * Refusing it does not stop anything: the geofence still wakes a
+     * stationary collector, roughly 200 m later. Asked here rather than with
+     * the location prompt so a user who granted location before this existed
+     * is still asked once.
+     */
+    private fun requestActivityRecognitionIfMissing() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val current = activity ?: return
+        if (GeoStatus.granted(
+                context,
+                Manifest.permission.ACTIVITY_RECOGNITION,
+            )
+        ) {
+            return
+        }
+        ActivityCompat.requestPermissions(
+            current,
+            arrayOf(Manifest.permission.ACTIVITY_RECOGNITION),
+            REQUEST_CODE,
+        )
+    }
+
+    /**
      * The answer to a permission dialog is the single most important thing the
      * status stream can carry: it is the moment a refused session becomes a
      * possible one. Without this the app has to poll to notice.
@@ -260,6 +344,19 @@ class AttractorGeoPlugin :
         grantResults: IntArray,
     ): Boolean {
         if (requestCode != REQUEST_CODE) return false
+        GeoLogDatabase.open(context).store().write(
+            System.currentTimeMillis(), "warning", "permission.changed",
+            permissionName(),
+        )
+        if (permissions.contains(Manifest.permission.ACTIVITY_RECOGNITION)) {
+            // The one permission whose refusal is invisible everywhere else:
+            // the session runs, the track is written, and it simply starts two
+            // blocks from where the walk did.
+            GeoLogDatabase.open(context).store().write(
+                System.currentTimeMillis(), "warning", "motion.permission",
+                GeoStatus.motionPermissionName(context),
+            )
+        }
         emitStatus()
         return true
     }
@@ -291,10 +388,16 @@ class AttractorGeoPlugin :
                 context, Manifest.permission.ACCESS_BACKGROUND_LOCATION
             )
         ) {
-            // Android 11+ ignores an in-app dialog for this one and requires a
-            // trip to the settings screen.
+            // Android 11+ ignores an in-app dialog for this one and requires
+            // a trip to the settings screen — which this deliberately does not
+            // take on the user's behalf any more. Being thrown into system
+            // settings by a button labelled "allow in background", with no
+            // explanation of what to do once there, is the exact experience
+            // Google's rationale requirement exists to prevent. The status
+            // reports `needs_background_rationale` instead, and the app
+            // explains and then calls `openSystemSettings` itself.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                openSettings()
+                return
             } else {
                 ActivityCompat.requestPermissions(
                     current,
@@ -302,6 +405,27 @@ class AttractorGeoPlugin :
                     REQUEST_CODE,
                 )
             }
+        }
+    }
+
+    /**
+     * The battery-optimisation *list*, not the one-tap allow dialog.
+     *
+     * `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` would be one tap instead
+     * of several, but it needs the permission of the same name — and a plugin
+     * cannot quietly add a permission that Play review asks every host app to
+     * justify. This intent needs nothing.
+     */
+    private fun openBatteryOptimizationSettings() {
+        val intent = Intent(
+            Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Not every build ships the screen; falling back to the app's own page
+        // beats an ActivityNotFoundException out of a fire-and-forget call.
+        try {
+            context.startActivity(intent)
+        } catch (_: android.content.ActivityNotFoundException) {
+            openSettings()
         }
     }
 
@@ -371,3 +495,12 @@ class AttractorGeoPlugin :
         const val REQUEST_CODE = 4712
     }
 }
+
+/** The wire shape, matching `GeoLogEntry.fromMap` on the Dart side. */
+fun GeoLogRow.toEventMap(): Map<String, Any?> = mapOf(
+    "id" to id,
+    "at_millis" to atMillis,
+    "level" to level,
+    "event" to event,
+    "message" to message,
+)

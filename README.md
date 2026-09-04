@@ -125,10 +125,282 @@ that collect location without declaring it.
 
 From iOS 14 the user can grant **Approximate** location instead of precise.
 The permission still reads as granted and points still arrive — but they are
-off by kilometres, which is useless for a route track. The package does not
-currently detect or request an upgrade to full accuracy
-(`requestTemporaryFullAccuracyAuthorization`); if your feature depends on
-precision, treat this as a known gap rather than an assumption you can make.
+off by kilometres, which is useless for a route track.
+
+`GeoTrackingStatus.preciseLocation` reports this, and `start()` asks once per
+session for a temporary upgrade. The prompt only appears if the host declares
+the purpose string iOS looks up — **without this key there is no prompt and no
+error, just approximate coordinates**:
+
+```xml
+<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+<dict>
+  <key>TrackingUsage</key>
+  <string>Why your app needs precise location.</string>
+</dict>
+```
+
+The key name `TrackingUsage` is fixed by this package.
+
+The upgrade is temporary by construction — iOS grants it until the app is next
+restarted, and there is no permanent one to ask for. A refusal is silent: the
+session keeps running on approximate coordinates, and `preciseLocation` stays
+false so the app can say so.
+
+Android has the same failure under a different name: the Android 12 prompt
+grants `ACCESS_COARSE_LOCATION` alone when the user picks *Approximate*, and
+`preciseLocation` reports that too.
+
+### Background permission on Android 11+
+
+Android 11 removed "Allow all the time" from the runtime prompt — the only
+route is the system settings screen, and Google requires an educational screen
+before sending anyone there.
+
+`requestPermission()` therefore does **nothing** at that step. Instead,
+`GeoTrackingStatus.needsBackgroundRationale` goes true, and it is the host's
+job to explain and then call `openSystemSettings()`. The package renders no UI
+of its own.
+
+### Уведомление на Android
+
+Оно висит весь сеанс — Android этого требует от `location`-сервиса, — поэтому
+это самая заметная поверхность пакета. Настраивается через
+`GeoNotificationConfig`:
+
+| Поле | Что делает |
+|---|---|
+| `title`, `body` | две строки самого уведомления |
+| `channelName` | как канал называется в системных настройках; **локализуйте** |
+| `smallIcon` | имя drawable в ресурсах хоста, например `ic_stat_route` |
+| `importance` | `low` (без звука, по умолчанию) или `normal` |
+| `tapOpensApp` | открывать ли приложение по нажатию; по умолчанию да |
+
+`smallIcon` берётся **по имени**, а не по id: id генерируются на сборке, и
+Dart-слою их держать негде. Нативная сторона ищет имя в `drawable`, потом в
+`mipmap`, и если не нашла — пишет `notification.icon` в лог и ставит системную
+иконку. Не бросает: невалидный id роняет уведомление в момент публикации, а это
+уносит с собой весь foreground-сервис — потерять сессию из-за иконки было бы
+плохим обменом.
+
+Android рисует эту иконку белым силуэтом в статус-баре, так что цветной
+лаунчер-икон приезжает бесформенным пятном. Нужен монохромный глиф с
+прозрачностью.
+
+Переименование канала применяется на следующем `configure`, **смена
+`importance` — нет**: после создания канала двигать его вправе только
+пользователь. Сборке, передумавшей насчёт важности, нужна переустановка.
+
+Чего здесь нет и не планируется: кнопок-действий, своего layout и largeIcon.
+Кнопка в уведомлении — это событие, которое некому доставить: Dart-изолята в
+этот момент нет, а поднимать его ради этого значит заводить headless-режим,
+которого у пакета нет по решению.
+
+### Battery
+
+`GeoTrackingStatus.powerSaveMode` and `ignoringBatteryOptimizations` report the
+two device states that throttle a background collector without any of its own
+diagnostics changing. `openBatteryOptimizationSettings()` opens the exemption
+list on Android and does nothing on iOS.
+
+### Когда GPS выключен
+
+Сессия не держит GPS от старта до остановки. Простояв `stopTimeoutSeconds`
+внутри `stationaryRadiusMeters`, коллектор выключает location updates и
+вооружает два детектора: быстрый — Activity Recognition на Android и
+`CMMotionActivityManager` на iOS, он замечает движение через несколько метров,
+и запасной — геозону радиусом `stationaryRadiusMeters` вокруг якоря, она
+отвечает через 200–500 м. Первый сработавший будит коллектор.
+
+`GeoTrackingStatus.isMoving` говорит, включён ли сейчас сбор, а
+`motionPermission` — работает ли быстрый детектор. `denied` означает, что трек
+начнётся примерно через 200 м после выхода: это единственное, что стоит
+объяснить пользователю. `unavailable` — детектора на устройстве нет вовсе (нет
+сопроцессора движения на iOS, нет Play Services на Android), и спрашивать
+разрешение бессмысленно.
+
+`stopTimeoutSeconds: 0` выключает машину целиком: GPS горит всю сессию. Это
+то, что нужно приложению, показывающему чужую позицию в реальном времени — и
+ровно то, чего не должен делать записыватель маршрута. Ноль здесь означает
+«выключено», а не «останавливаться немедленно», как и ноль у
+`elasticityMultiplier`.
+
+Машина состояний работает **только под `Always`**. Под `whenInUse` выключенный
+GPS будить некому: геозона требует фоновой геолокации, а приложения на экране в
+этот момент по определению нет.
+
+Сервис на Android в состоянии stationary остаётся живым — гасится только GPS.
+Уведомление и foreground-состояние это то, через что детектор вообще может
+достучаться до коллектора: перезапуск foreground-сервиса из фона Android 12+
+запрещает.
+
+iOS требует ключ `NSMotionUsageDescription` в Info.plist хоста — без него
+приложение падает при первом обращении к CoreMotion. Android объявляет
+`ACTIVITY_RECOGNITION` сам и спрашивает его при `start()`.
+
+### Как скорость разрежает точки
+
+`distanceFilterMeters` — база, а не константа. Начиная с шага пешехода фильтр
+растёт пропорционально скорости: на 90 км/ч точка пишется примерно раз в 360 м
+вместо каждых 20. Потолок — 500 м, чтобы одна ошибочная скорость (глюк GPS,
+заявляющий 300 м/с) не выключила трекинг совсем. `elasticityMultiplier: 0`
+отключает растяжение целиком — это «выключено», а не «фильтр в ноль метров».
+
+На Android значение округляется до ступеней `base × {1, 2, 5, 10, 20}`: там
+смена фильтра означает пересоздание запроса на обновления, и делать это на
+каждый фикс дороже, чем то, что растяжение экономит. На iOS присваивается как
+есть — это одно присваивание.
+
+Растяжение работает на любой авторизации, в отличие от машины состояний: оно
+ничего не выключает и будить его не нужно.
+
+### Что происходит с батчем, который бэкенд не принял
+
+Удаляется только то, что бэкенд подтвердил (2xx). Всё остальное остаётся в
+очереди — политика та же, что у `flutter_background_geolocation`.
+
+| Ответ | Что делает аплоадер |
+|---|---|
+| 2xx | удаляет точки |
+| 401 | останавливает выгрузку до свежих учётных данных |
+| 408, 429 | повторяет с бэкоффом |
+| прочие 4xx | **откладывает батч на час**, точки остаются |
+| 5xx и сетевые сбои | повторяет с бэкоффом |
+
+Раньше «прочие 4xx» удаляли батч навсегда. При `batchSize = 50` одна точка с
+битыми координатами уносила сорок девять здоровых, а единственным следом была
+строка `http 422` в статусе.
+
+Отсрочка, а не просто удержание, — потому что очередь читается с головы. Батч,
+который бэкенд не примет никогда, иначе перечитывался бы вечно и не пускал
+вперёд ничего нового. Отложенным строкам проставляется `deferred_until_millis`,
+и `oldest()` их пропускает, пока время не пришло. Повторный отказ переписывает
+окно, а не прибавляет к нему.
+
+Границы очереди (`queueMaxPoints`, `queueMaxAgeDays`) остаются последним
+словом: батч, который не примут никогда, в итоге вытесняется по возрасту.
+
+`queuedPoints` в статусе считает и отложенные — вопрос, на который он отвечает,
+это «сколько ещё не доехало».
+
+### Свежесть против дешёвого бэклога
+
+Две разные работы, и до 0.8.0 они жили в одном числе. `sendAfterPoints`
+отвечает на «когда уходит запрос», `batchSize` — на «сколько точек он несёт».
+
+```dart
+GeoUploadConfig.standard(
+  url: …,
+  headers: …,
+  notification: …,
+  sendAfterPoints: 1,   // запрос уходит, как только точка записана
+  batchSize: 50,        // но накопленное офлайн уезжает по пятьдесят
+)
+```
+
+`sendAfterPoints: 1` — это то, что нужно экрану с чужой позицией на карте:
+бэкенд отстаёт не больше чем на один фикс. Стоит это одного запроса на
+записанный фикс, пока устройство едет — за 20-метровым фильтром примерно один
+на двадцать метров, — и нуля, пока стоит: неподвижный коллектор точек не пишет.
+
+Опускать вместе с ним `batchSize` не нужно и вредно. Час офлайна — это ~180
+точек в очереди; при `batchSize: 1` они уедут ста восемьюдесятью
+последовательными запросами, и одного сбоя среди них хватит, чтобы положить всю
+очередь на бэкофф.
+
+Эластичность влияет на то, что считается перемещением: на 90 км/ч фильтр
+растянут примерно до 360 м, так что «каждое перемещение» там — каждые 360 м.
+`GeoMotionConfig(elasticityMultiplier: 0)` отключает растяжение, если позиция на
+скорости нужна такой же частой, как пешком.
+
+### Когда уходит очередь
+
+Пять триггеров:
+
+- набрался `batchSize`;
+- прошёл `uploadIntervalSeconds` (свип коллектора);
+- **появилась сеть** — `NWPathMonitor` на iOS, `ConnectivityManager` на Android;
+- периодический воркер WorkManager, не чаще раза в 15 минут (только Android);
+- запуск сессии.
+
+Слушатель сети живёт ровно столько же, сколько свип: монитор, переживший
+`stop()`, будил бы выгрузку для сессии, которой уже нет. На Android constraint
+`NetworkType.CONNECTED` у воркера остаётся — он отвечает за «не запускать без
+сети», а колбэк за «сеть появилась»; это разные вопросы.
+
+### Наблюдаемость
+
+Отказы этого пакета случаются, когда Dart-изолята нет в живых, — то есть ровно
+тогда, когда `points` и `statusChanges` ничего не ловят. Поэтому нативная
+сторона ведёт свой лог, переживающий смерть процесса, в отдельном файле базы
+на каждой платформе.
+
+Лог — **outbox, а не архив**: он копит записи до того, как их кто-нибудь
+заберёт. Чтение в две фазы, потому что падение между получением и записью
+потеряло бы ровно то, ради чего лог заведён:
+
+```dart
+final entries = await tracker.readLog(limit: 500); // читает, не удаляет
+if (entries.isEmpty) return;
+// … записи уходят туда, где их не потерять
+await tracker.dropLog(untilId: entries.last.id);   // теперь можно удалить
+```
+
+`dropLog` ограничен курсором, а не чистит таблицу: коллектор продолжает писать
+всё время, пока идёт вычитывание, и те записи не видел никто.
+
+Теги событий: `session.start`, `session.stop`, `session.resume`,
+`config.saved`, `permission.changed`, `fix.accepted`, `fix.rejected`,
+`queue.enqueued`, `upload.attempt`, `upload.result`, `upload.giveup`,
+`motion.stationary`, `motion.moving`, `motion.permission`,
+`filter.elasticity`.
+`event` отделён от `message`, чтобы фильтровать без разбора текста.
+
+**Чего лог не содержит никогда:** заголовков запроса. Там bearer-токен. URL
+пишется — он и так в статусе. Тело ответа пишется только на не-2xx и режется
+до 500 символов: именно оно превращает `http 422` в `points.bad_coordinates`.
+
+Границы — 2000 строк или 3 дня, что раньше, применяются на каждой записи.
+`reset()` чистит лог вместе с очередью: записи содержат координаты.
+
+### Как настроить на реальное время
+
+Пакет по умолчанию собран под запись маршрута. Приложению, которому нужна чужая
+позиция «сейчас», нужен противоположный набор:
+
+```dart
+GeoUploadConfig.standard(
+  url: …,
+  headers: …,
+  notification: …,
+  distanceFilterMeters: 0,   // без порога по расстоянию
+  minIntervalSeconds: 0,     // как быстро отдаёт платформа, около 1 Гц
+  sendAfterPoints: 1,        // запрос с каждой точкой
+  filter: GeoFilterConfig.standard(minDisplacementMeters: 0),
+  motion: GeoMotionConfig.standard(
+    stopTimeoutSeconds: 0,     // не гасить GPS
+    elasticityMultiplier: 0,   // не разрежать точки на скорости
+  ),
+)
+```
+
+Чего это стоит, прямым текстом: непрерывный GPS всю сессию — самое дорогое, что
+можно попросить у телефона в фоне; примерно один HTTP-запрос в секунду на
+активного пользователя; и неподвижный маркер будет дрожать на несколько метров,
+потому что порога, который это гасил, больше нет — остаётся только сглаживание.
+
+Потолок транспорта: аплоадер последовательный, и если запрос летит дольше, чем
+приходит следующая точка, очередь начнёт склеивать их по две-три. Это не
+поломка, а деградация в правильную сторону. Секунда — примерно предел для
+HTTP-на-точку; ниже нужен другой транспорт, а не другие настройки.
+
+### Fix filtering
+
+Every fix passes `GeoFilterConfig` before it reaches the queue: an accuracy
+ceiling, a displacement floor, an implied-speed ceiling, and then a
+constant-position Kalman smoother. Points are stored smoothed, with `accuracy`
+reported as the smoother's own uncertainty rather than the raw claim.
+`currentPosition()` is unfiltered — it is a read, not a recording.
 
 ---
 
@@ -197,8 +469,12 @@ await geo.configure(
     sessionId: consentId,
     url: 'https://api.example.com/v1/tracking/points',
     headers: {'Authorization': 'Bearer $token'},
-    notificationTitle: 'Tracking',            // Android notification copy;
-    notificationBody: 'Recording your route', // ignored on iOS
+    notification: GeoNotificationConfig.standard(
+      title: 'Tracking',                // Android only; iOS shows nothing
+      body: 'Recording your route',
+      channelName: 'Route tracking',    // what the user reads in settings
+      smallIcon: 'ic_stat_route',       // your drawable, or omit for the
+    ),                                  // platform's stock pin
   ),
 );
 
@@ -297,8 +573,7 @@ if (status.authFailed) {
       sessionId: sessionId,
       url: url,
       headers: {'Authorization': 'Bearer $freshToken'},
-      notificationTitle: title,
-      notificationBody: body,
+      notification: notification,
     ),
   );
 }
@@ -403,10 +678,16 @@ states the whole policy rather than silently inheriting half of it.
 |---|---|---|
 | `distanceFilterMeters` | 20 | record a point after this much movement |
 | `minIntervalSeconds` | 10 | …but never more often than this |
-| `batchSize` | 50 | upload once this many are queued |
+| `batchSize` | 50 | ceiling on points per request |
+| `sendAfterPoints` | = `batchSize` | queued points that make an arriving point send |
 | `uploadIntervalSeconds` | 60 | …or after this long, whichever comes first |
 | `queueMaxPoints` | 20000 | queue ceiling, oldest evicted first |
 | `queueMaxAgeDays` | 7 | age ceiling, same eviction |
+| `notification.importance` | `low` | silent; `normal` makes a sound once |
+| `notification.tapOpensApp` | `true` | tapping opens the host's launcher activity |
+| `motion.stopTimeoutSeconds` | 300 | stand still this long and the GPS goes off; `0` never |
+| `motion.stationaryRadiusMeters` | 150 | stillness threshold, and the radius of the waking geofence |
+| `motion.elasticityMultiplier` | 1 | how hard speed stretches the distance filter; 0 switches it off |
 
 **`uploadIntervalSeconds` means the same thing on both platforms while a
 session is running** — the collector drives the drain itself, iOS on a timer

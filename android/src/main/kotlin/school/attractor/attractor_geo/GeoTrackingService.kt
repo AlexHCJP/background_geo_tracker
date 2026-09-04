@@ -4,11 +4,14 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -30,6 +33,8 @@ import kotlinx.coroutines.launch
 import school.attractor.attractor_geo.db.GeoDatabase
 import school.attractor.attractor_geo.db.PointQueue
 import school.attractor.attractor_geo.db.PointRow
+import school.attractor.attractor_geo.log.GeoLogDatabase
+import school.attractor.attractor_geo.log.GeoLogStore
 import school.attractor.attractor_geo.upload.PointJson
 import school.attractor.attractor_geo.upload.UploadWorker
 
@@ -44,6 +49,35 @@ class GeoTrackingService : Service() {
     private lateinit var queue: PointQueue
     private lateinit var client: FusedLocationProviderClient
     private var drains: Job? = null
+    private lateinit var logs: GeoLogStore
+
+    /**
+     * Wakes the drain the moment a network comes back.
+     *
+     * Not the same job as the worker's `NetworkType.CONNECTED` constraint,
+     * which stays: that one keeps queued work from running without a network,
+     * and this one says a network has appeared. WorkManager answers only the
+     * first, and does it on the scheduler's timetable rather than now.
+     */
+    private var networks: ConnectivityManager.NetworkCallback? = null
+    private lateinit var filter: LocationFilter
+    private lateinit var policy: MotionPolicy
+    private lateinit var detector: MotionDetector
+
+    /**
+     * Whether the state machine may run at all.
+     *
+     * Only under `Always`. Under `When In Use` a switched-off GPS would be a
+     * session nobody can wake: the geofence needs background location, and the
+     * app is by definition not on screen when it matters. Elasticity is not
+     * gated on this — spacing points out by speed wakes nothing.
+     */
+    private val stopDetectionAllowed: Boolean
+        get() = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            GeoStatus.granted(
+                this,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            )
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -53,152 +87,465 @@ class GeoTrackingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+
         config = GeoConfigStore(this)
         queue = PointQueue(GeoDatabase.open(this).points())
         client = LocationServices.getFusedLocationProviderClient(this)
+        logs = GeoLogDatabase.open(this).store()
+
+        watchNetwork()
+
+        filter = LocationFilter(
+            accuracyThresholdMeters = config.filterAccuracyThresholdMeters,
+            minDisplacementMeters = config.filterMinDisplacementMeters,
+            maxImpliedSpeedMps = config.filterMaxImpliedSpeedMps,
+            kalmanProcessNoiseMps = config.filterKalmanProcessNoiseMps,
+        )
+
+        policy = MotionPolicy(
+            stopTimeoutSeconds = config.motionStopTimeoutSeconds,
+            stationaryRadiusMeters = config.motionStationaryRadiusMeters,
+            elasticityMultiplier = config.motionElasticityMultiplier,
+            baseDistanceFilterMeters = config.distanceFilterMeters.toDouble(),
+        )
+
+        detector = MotionDetector(this)
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Order matters. On Android 14+ `startForeground` for a `location`
-        // service throws SecurityException when the location permission is
-        // missing, so this check has to happen first — and the queue is left
-        // untouched, because whatever it already holds still needs uploading.
+    private fun watchNetwork() {
+        val manager = getSystemService(ConnectivityManager::class.java) ?: return
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val queued = queue.count()
+
+                logs.write(
+                    System.currentTimeMillis(),
+                    "info",
+                    "connectivity.available",
+                    "queue depth=$queued",
+                )
+
+                if (queued > 0) {
+                    UploadWorker.enqueueNow(this@GeoTrackingService)
+                }
+            }
+        }
+
+        try {
+            manager.registerDefaultNetworkCallback(callback)
+            networks = callback
+        } catch (e: SecurityException) {
+            logs.write(
+                System.currentTimeMillis(),
+                "warning",
+                "connectivity.available",
+                "not watching: ${e.message ?: "registration refused"}",
+            )
+        }
+    }
+
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         if (!config.isConfigured() ||
             !GeoStatus.hasBackgroundLocation(this) ||
             !GeoStatus.locationEnabled(this)
         ) {
             isRunning = false
             stopSelf()
+
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(),
+        )
+
         isRunning = true
+
+        if (intent?.action == MotionDetector.ACTION_MOTION_WAKE &&
+            wake(detector.sourceOf(intent))
+        ) {
+            return START_STICKY
+        }
+
+        logs.write(
+            System.currentTimeMillis(),
+            "info",
+            "session.resume",
+            if (intent == null) {
+                "restarted by the OS"
+            } else {
+                "started by the app"
+            },
+        )
+
+        policy.reset()
+        config.isMoving = true
+
         requestUpdates()
         startDrainLoop()
-        UploadWorker.schedule(this, config.uploadIntervalSeconds)
-        // Not only for the app that asked: a session resumed after a reboot or
-        // a low-memory kill starts here too, with no Dart call to report it.
+
+        UploadWorker.schedule(
+            this,
+            config.uploadIntervalSeconds,
+        )
+
         emitStatus()
-        // START_STICKY so the OS restarts us after a low-memory kill.
+
         return START_STICKY
     }
 
     /**
      * Reads the queue depth on the calling thread deliberately. A coroutine
-     * would not reliably run before the service is torn down, and teardown is
-     * exactly when this matters most — one indexed COUNT over at most a few
-     * days of points is the cheaper trade.
+     * would not reliably run before the service is torn down.
      */
     private fun emitStatus() {
-        GeoEventBus.emitStatus(GeoStatus.map(this, config, queue.count()))
+        GeoEventBus.emitStatus(
+            GeoStatus.map(
+                this,
+                config,
+                queue.count(),
+            ),
+        )
     }
 
     /**
-     * Sends a half-full batch on `uploadIntervalSeconds`, the way the config
-     * says it will.
-     *
-     * WorkManager cannot do this: its floor for periodic work is 15 minutes,
-     * so on its own a phone sitting still under `batchSize` held its points
-     * for a quarter of an hour while iOS shipped them in a minute — one
-     * setting meaning two different things. This service is alive for the
-     * whole session anyway, so it can keep that promise itself; the periodic
-     * worker stays as the net for when it is not alive.
-     *
-     * The queue is checked first so an idle session is not paying WorkManager
-     * to wake up and find nothing.
+     * Sends a half-full batch on `uploadIntervalSeconds`.
      */
     private fun startDrainLoop() {
-        // Left alone when it is already running. `onStartCommand` arrives on
-        // every launch and every return to the foreground — the host re-sends
-        // the endpoint and credentials then — and a loop rebuilt each time
-        // starts its delay over, so a reader who keeps opening the app keeps
-        // pushing away the very sweep they are waiting for.
         if (drains?.isActive != true) {
-            val period = config.uploadIntervalSeconds.coerceAtLeast(1) * 1000L
+            val period =
+                config.uploadIntervalSeconds.coerceAtLeast(1) * 1000L
+
             drains = scope.launch {
                 while (isActive) {
                     delay(period)
+
                     if (queue.count() > 0) {
-                        UploadWorker.enqueueNow(this@GeoTrackingService)
+                        UploadWorker.enqueueNow(
+                            this@GeoTrackingService,
+                        )
                     }
                 }
             }
         }
-        // Whatever survived the last run has already waited; making it sit out
-        // a fresh period while the app is open and on a network is the wrong
-        // way round.
-        if (queue.count() > 0) UploadWorker.enqueueNow(this)
+
+        if (queue.count() > 0) {
+            UploadWorker.enqueueNow(this)
+        }
     }
 
-    private fun requestUpdates() {
-        val intervalMillis = config.minIntervalSeconds * 1000L
+    private fun requestUpdates(
+        distanceFilterMeters: Double =
+            config.distanceFilterMeters.toDouble(),
+    ) {
+        val intervalMillis =
+            config.minIntervalSeconds * 1000L
+
         val request = LocationRequest.Builder(
             Priority.PRIORITY_HIGH_ACCURACY,
             intervalMillis,
         )
-            .setMinUpdateDistanceMeters(config.distanceFilterMeters.toFloat())
+            .setMinUpdateDistanceMeters(
+                distanceFilterMeters.toFloat(),
+            )
             .setMinUpdateIntervalMillis(intervalMillis)
             .setWaitForAccurateLocation(false)
             .build()
 
-        // Permission was checked in onStartCommand; it can still be revoked
-        // from Settings mid-session, which arrives as a SecurityException here
-        // on some OEM builds rather than a callback.
         try {
-            client.requestLocationUpdates(request, callback, mainLooper)
+            client.requestLocationUpdates(
+                request,
+                callback,
+                mainLooper,
+            )
         } catch (_: SecurityException) {
             stopSelf()
         }
     }
 
+    /**
+     * Puts the collector to sleep: the GPS goes off, the detectors go on.
+     */
+    private fun goStationary(
+        decision: MotionPolicy.Decision.Stop,
+    ) {
+        client.removeLocationUpdates(callback)
+
+        val armed = detector.arm(
+            decision.anchorLat,
+            decision.anchorLon,
+            decision.radiusMeters,
+        )
+
+        config.isMoving = false
+
+        logs.write(
+            System.currentTimeMillis(),
+            "info",
+            "motion.stationary",
+            "anchor=%.5f,%.5f r=%.0fm still=%ds armed=%s".format(
+                decision.anchorLat,
+                decision.anchorLon,
+                decision.radiusMeters,
+                decision.stillSeconds,
+                armed.ifEmpty { "nothing" },
+            ),
+        )
+
+        emitStatus()
+    }
+
+    /**
+     * A detector fired: the GPS comes back and the detectors stand down.
+     */
+    private fun wake(source: String): Boolean {
+        if (!policy.onMovementDetected(System.currentTimeMillis())) {
+            return false
+        }
+
+        detector.disarm()
+
+        config.isMoving = true
+
+        requestUpdates()
+
+        logs.write(
+            System.currentTimeMillis(),
+            "info",
+            "motion.moving",
+            source,
+        )
+
+        emitStatus()
+
+        return true
+    }
+
     private fun record(location: Location) {
-        val row = location.toPointRow(this, config.sessionId)
+        val verdict = filter.apply(
+            lat = location.latitude,
+            lon = location.longitude,
+            accuracy = location.accuracy.toDouble(),
+            recordedAtMillis = location.time,
+        )
+
+        if (verdict !is LocationFilter.Verdict.Accept) {
+            logs.write(
+                location.time,
+                "info",
+                "fix.rejected",
+                (verdict as LocationFilter.Verdict.Reject).reason,
+            )
+
+            return
+        }
+
+        logs.write(
+            location.time,
+            "info",
+            "fix.accepted",
+            "%.5f,%.5f acc %.0f→%.0f".format(
+                verdict.lat,
+                verdict.lon,
+                location.accuracy.toDouble(),
+                verdict.accuracy,
+            ),
+        )
+
+        val decision = policy.onFix(
+            lat = location.latitude,
+            lon = location.longitude,
+            speedMps =
+                if (location.hasSpeed() && location.speed > 0) {
+                    location.speed.toDouble()
+                } else {
+                    0.0
+                },
+            atMillis = location.time,
+        )
+
+        when (decision) {
+            is MotionPolicy.Decision.Stop -> {
+                if (stopDetectionAllowed) {
+                    goStationary(decision)
+                } else {
+                    policy.onMovementDetected(location.time)
+                }
+            }
+
+            is MotionPolicy.Decision.Continue -> {
+                if (decision.stepChanged) {
+                    client.removeLocationUpdates(callback)
+
+                    requestUpdates(
+                        decision.steppedDistanceFilterMeters,
+                    )
+
+                    logs.write(
+                        location.time,
+                        "info",
+                        "filter.elasticity",
+                        "%.1fm/s → %.0fm".format(
+                            location.speed.toDouble(),
+                            decision.steppedDistanceFilterMeters,
+                        ),
+                    )
+                }
+            }
+        }
+
+        val row = location
+            .toPointRow(
+                this,
+                config.sessionId,
+            )
+            .copy(
+                lat = verdict.lat,
+                lon = verdict.lon,
+                accuracy = verdict.accuracy,
+            )
 
         scope.launch {
-            queue.enqueue(row, config.queueMaxPoints, config.queueMaxAgeDays)
-            GeoEventBus.emitPoint(row.toEventMap())
-            if (queue.count() >= config.batchSize) {
-                UploadWorker.enqueueNow(this@GeoTrackingService)
+            queue.enqueue(
+                row,
+                config.queueMaxPoints,
+                config.queueMaxAgeDays,
+            )
+
+            logs.write(
+                row.recordedAtMillis,
+                "info",
+                "queue.enqueued",
+                "${row.id} depth=${queue.count()}",
+            )
+
+            GeoEventBus.emitPoint(
+                row.toEventMap(),
+            )
+
+            if (queue.count() >= config.sendAfterPoints) {
+                UploadWorker.enqueueNow(
+                    this@GeoTrackingService,
+                )
             }
         }
     }
 
     private fun buildNotification(): Notification {
-        val manager = getSystemService(NotificationManager::class.java)
+        val manager =
+            getSystemService(NotificationManager::class.java)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Location tracking",
-                    NotificationManager.IMPORTANCE_LOW,
+                    config.notificationChannelName,
+                    config.notificationImportance,
                 ),
             )
         }
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(config.notificationTitle)
-            .setContentText(config.notificationBody)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setOngoing(true)
-            .build()
+
+        val builder =
+            NotificationCompat.Builder(
+                this,
+                CHANNEL_ID,
+            )
+                .setContentTitle(
+                    config.notificationTitle,
+                )
+                .setContentText(
+                    config.notificationBody,
+                )
+                .setSmallIcon(smallIconId())
+                .setOngoing(true)
+
+        if (config.notificationTapOpensApp) {
+            launchIntent()?.let(
+                builder::setContentIntent,
+            )
+        }
+
+        return builder.build()
+    }
+
+    private fun smallIconId(): Int {
+        val name = config.notificationSmallIcon
+
+        if (name.isEmpty()) {
+            return android.R.drawable.ic_menu_mylocation
+        }
+
+        for (type in arrayOf("drawable", "mipmap")) {
+            val id =
+                resources.getIdentifier(
+                    name,
+                    type,
+                    packageName,
+                )
+
+            if (id != 0) {
+                return id
+            }
+        }
+
+        logs.write(
+            System.currentTimeMillis(),
+            "warning",
+            "notification.icon",
+            "no drawable or mipmap named $name; using the platform's",
+        )
+
+        return android.R.drawable.ic_menu_mylocation
+    }
+
+    private fun launchIntent(): PendingIntent? {
+        val intent =
+            packageManager.getLaunchIntentForPackage(
+                packageName,
+            ) ?: return null
+
+        return PendingIntent.getActivity(
+            this,
+            NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 
     override fun onDestroy() {
         client.removeLocationUpdates(callback)
+
         isRunning = false
-        // Covers the stops nobody asked for: permission revoked from Settings
-        // mid-session, or the OS shutting the service down. An explicit stop
-        // reports itself from the plugin as well; a duplicate status is
-        // harmless, a missing one is not.
+
+        detector.disarm()
+
+        networks?.let {
+            getSystemService(ConnectivityManager::class.java)
+                ?.unregisterNetworkCallback(it)
+        }
+
+        networks = null
+
         emitStatus()
+
         scope.cancel()
+
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        private const val CHANNEL_ID = "attractor_geo_tracking"
+        private const val CHANNEL_ID =
+            "attractor_geo_tracking"
+
         private const val NOTIFICATION_ID = 4711
 
         @Volatile
@@ -206,12 +553,24 @@ class GeoTrackingService : Service() {
             private set
 
         fun start(context: Context) {
-            val intent = Intent(context, GeoTrackingService::class.java)
-            ContextCompat.startForegroundService(context, intent)
+            val intent = Intent(
+                context,
+                GeoTrackingService::class.java,
+            )
+
+            ContextCompat.startForegroundService(
+                context,
+                intent,
+            )
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, GeoTrackingService::class.java))
+            context.stopService(
+                Intent(
+                    context,
+                    GeoTrackingService::class.java,
+                ),
+            )
         }
     }
 }

@@ -51,8 +51,11 @@ class _HarnessScreenState extends State<HarnessScreen> {
         sessionId: 'example-session',
         url: _url,
         headers: const <String, String>{'Authorization': 'Bearer harness'},
-        notificationTitle: 'Attractor tracking',
-        notificationBody: 'Recording your route',
+        notification: GeoNotificationConfig.standard(
+          title: 'Attractor tracking',
+          body: 'Recording your route',
+          channelName: 'Route tracking',
+        ),
       ),
     );
     await _refresh();

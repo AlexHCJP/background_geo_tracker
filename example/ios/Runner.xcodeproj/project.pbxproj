@@ -12,6 +12,9 @@
 		AA02000000000000000002 /* PointJsonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000002 /* PointJsonTests.swift */; };
 		AA02000000000000000003 /* PointQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000003 /* PointQueueTests.swift */; };
 		AA02000000000000000004 /* GeoConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000004 /* GeoConfigStoreTests.swift */; };
+		AA02000000000000000005 /* LocationFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000005 /* LocationFilterTests.swift */; };
+		AA02000000000000000006 /* GeoLogStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000006 /* GeoLogStoreTests.swift */; };
+		AA02000000000000000007 /* MotionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA01000000000000000007 /* MotionPolicyTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
@@ -51,6 +54,9 @@
 		AA01000000000000000002 /* PointJsonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointJsonTests.swift; sourceTree = "<group>"; };
 		AA01000000000000000003 /* PointQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointQueueTests.swift; sourceTree = "<group>"; };
 		AA01000000000000000004 /* GeoConfigStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoConfigStoreTests.swift; sourceTree = "<group>"; };
+		AA01000000000000000005 /* LocationFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationFilterTests.swift; sourceTree = "<group>"; };
+		AA01000000000000000006 /* GeoLogStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoLogStoreTests.swift; sourceTree = "<group>"; };
+		AA01000000000000000007 /* MotionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionPolicyTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -88,6 +94,9 @@
 				AA01000000000000000002 /* PointJsonTests.swift */,
 				AA01000000000000000003 /* PointQueueTests.swift */,
 				AA01000000000000000004 /* GeoConfigStoreTests.swift */,
+				AA01000000000000000005 /* LocationFilterTests.swift */,
+				AA01000000000000000006 /* GeoLogStoreTests.swift */,
+				AA01000000000000000007 /* MotionPolicyTests.swift */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -290,6 +299,9 @@
 				AA02000000000000000002 /* PointJsonTests.swift in Sources */,
 				AA02000000000000000003 /* PointQueueTests.swift in Sources */,
 				AA02000000000000000004 /* GeoConfigStoreTests.swift in Sources */,
+				AA02000000000000000005 /* LocationFilterTests.swift in Sources */,
+				AA02000000000000000006 /* GeoLogStoreTests.swift in Sources */,
+				AA02000000000000000007 /* MotionPolicyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

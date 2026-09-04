@@ -26,7 +26,8 @@ class GeoDatabase private constructor(context: Context, name: String?) :
                 heading REAL,
                 recorded_at_millis INTEGER NOT NULL,
                 is_mock INTEGER NOT NULL,
-                battery_level REAL
+                battery_level REAL,
+                deferred_until_millis INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
         )
@@ -36,11 +37,23 @@ class GeoDatabase private constructor(context: Context, name: String?) :
         )
     }
 
+    /**
+     * Additive, deliberately.
+     *
+     * This used to drop the table and rebuild it, on the reasoning that queued
+     * points are disposable telemetry. That is true of their *value* and false
+     * of the moment it happens: the drop lands on the launch right after an
+     * update, taking whatever the user collected offline with it, for no
+     * better reason than that a column was added. Every migration from here on
+     * adds what it needs and leaves the rows alone.
+     */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Queued points are disposable telemetry, not user data. Rebuilding is
-        // cheaper and safer than migrating.
-        db.execSQL("DROP TABLE IF EXISTS $TABLE")
-        onCreate(db)
+        if (oldVersion < 2) {
+            db.execSQL(
+                "ALTER TABLE $TABLE ADD COLUMN " +
+                    "deferred_until_millis INTEGER NOT NULL DEFAULT 0",
+            )
+        }
     }
 
     fun points(): PointDao = PointDao(this)
@@ -62,5 +75,15 @@ class GeoDatabase private constructor(context: Context, name: String?) :
         /** A throwaway in-memory database, for tests. */
         fun inMemory(context: Context): GeoDatabase =
             GeoDatabase(context, null)
+
+        /**
+         * A file-backed database under a name of the caller's choosing.
+         *
+         * For tests that need an upgrade to actually happen: [inMemory] is
+         * created fresh at the current version every time and so never calls
+         * [onUpgrade] at all.
+         */
+        fun named(context: Context, name: String): GeoDatabase =
+            GeoDatabase(context, name)
     }
 }
