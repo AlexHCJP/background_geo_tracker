@@ -109,7 +109,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     /// Whether the OS will give this session anything at all.
     private var isAuthorized: Bool {
         switch authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
+        case .authorizedAlways:
             return true
         default:
             return false
