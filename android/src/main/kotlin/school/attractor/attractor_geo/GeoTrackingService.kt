@@ -151,6 +151,7 @@ class GeoTrackingService : Service() {
         startId: Int,
     ): Int {
         if (!config.isConfigured() ||
+            config.sessionId.isBlank() ||
             !GeoStatus.hasBackgroundLocation(this) ||
             !GeoStatus.locationEnabled(this)
         ) {
