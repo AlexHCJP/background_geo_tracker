@@ -24,10 +24,7 @@ The original MIT copyright and license are preserved.
 
 ```yaml
 dependencies:
-  background_geo_tracker:
-    git:
-      url: https://github.com/AlexHCJP/background_geo_tracker.git
-      ref: v0.9.1
+  background_geo_tracker: ^latest_version
 ```
 
 Platform floors, both enforced by the package:
