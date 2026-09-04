@@ -12,6 +12,8 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     private let config = GeoConfigStore()
     private var queue: PointQueue? { PointQueue.shared }
 
+    private(set) var isRunning = false
+
     /// Called after each enqueue so the uploader can decide to drain.
     var onQueueGrew: (() -> Void)?
 
@@ -107,8 +109,10 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     /// Whether the OS will give this session anything at all.
     private var isAuthorized: Bool {
         switch authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse: return true
-        default: return false
+        case .authorizedAlways:
+            return true
+        default:
+            return false
         }
     }
 
@@ -123,10 +127,29 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     /// this is that behaviour.
     @discardableResult
     func start() -> Bool {
-        guard isAuthorized else { return false }
+        guard isAuthorized else {
+            isRunning = false
+            emitStatus()
+            return false
+        }
+
+        guard config.isConfigured, !config.sessionId.isEmpty else {
+            isRunning = false
+            emitStatus()
+            return false
+        }
+
+        guard locationServicesEnabled() else {
+            isRunning = false
+            emitStatus()
+            return false
+        }
 
         config.isTracking = true
-        manager.distanceFilter = Self.distanceFilter(Double(config.distanceFilterMeters))
+        manager.distanceFilter = Self.distanceFilter(
+            Double(config.distanceFilterMeters)
+        )
+
         // Reopening is not resuming: the floor below is about the spacing of a
         // session's own points, and holding a fix from the last one against
         // the first of this one would swallow it. The same goes for the
@@ -146,6 +169,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             baseDistanceFilterMeters: Double(config.distanceFilterMeters)
         )
         config.isMoving = true
+
         // Taken down first: `start` is also the resume path, and a session
         // coming back from a background launch may still have the last one's
         // detectors armed.
@@ -153,12 +177,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
 
         // Set under `When In Use` as well as `Always`, which is the whole
         // point of it. iOS grants background updates on either one so long as
-        // the host declares the `location` background mode — and gating it on
-        // `Always` meant a `When In Use` session collected nothing the moment
-        // the app left the screen, while still reporting itself as tracking.
-        // Nothing said so: no error, no status change, no log line. The
-        // backend simply froze at wherever the phone was when the user last
-        // closed the app.
+        // the host declares the `location` background mode.
         manager.allowsBackgroundLocationUpdates = true
 
         if authorizationStatus == .authorizedAlways {
@@ -168,15 +187,11 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             //
             // It is NOT optional under `When In Use`: iOS shows it for the
             // whole time background updates run on that authorization, and no
-            // property here can suppress it. So a blue bar after this line is
-            // a symptom, not a setting — it means the session is running on
-            // `When In Use`.
+            // property here can suppress it.
             manager.showsBackgroundLocationIndicator = false
-            // The relaunch anchor, and the one thing `When In Use` genuinely
-            // cannot have: significant-location-change is what brings the app
-            // back after iOS evicts it. A `When In Use` session therefore ends
-            // for good when the process does, which is what the upgrade prompt
-            // on the map is for.
+
+            // The relaunch anchor. Standard updates alone do not bring the app
+            // back after the user swipes it away.
             manager.startMonitoringSignificantLocationChanges()
         }
 
@@ -189,51 +204,79 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         )
 
         manager.startUpdatingLocation()
+        isRunning = true
+
         // After `startUpdatingLocation`, so a user who grants precision sees
-        // the session it was asked for begin immediately rather than after the
-        // next fix, and one who refuses has already been collecting all along.
+        // the session it was asked for begin immediately rather than after
+        // the next fix, and one who refuses has already been collecting all
+        // along.
         requestFullAccuracyIfReduced()
-        if stopDetectionAllowed { detector.primePermission() }
+
+        if stopDetectionAllowed {
+            detector.primePermission()
+        }
+
         // Written at session start rather than on the answer: CoreMotion has
         // no callback for its dialog, so the state is what can be observed and
-        // today's answer shows up in tomorrow's session. Android logs the same
-        // event from the dialog result, which is the closest the two get.
+        // today's answer shows up in tomorrow's session.
         GeoLogStore.shared?.write(
             atMillis: Int64(Date().timeIntervalSince1970 * 1000),
-            level: "info", event: "motion.permission",
+            level: "info",
+            event: "motion.permission",
             message: detector.permissionName()
         )
+
         emitStatus()
         return true
     }
 
     func stop() {
         config.isTracking = false
+        stopRuntime()
+
+        GeoLogStore.shared?.write(
+            atMillis: Int64(Date().timeIntervalSince1970 * 1000),
+            level: "info",
+            event: "session.stop",
+            message: "asked by the app"
+        )
+
+        emitStatus()
+    }
+
+    private func stopRuntime() {
         detector.disarm(manager: manager)
         config.isMoving = true
         manager.stopUpdatingLocation()
         manager.stopMonitoringSignificantLocationChanges()
         manager.allowsBackgroundLocationUpdates = false
-        GeoLogStore.shared?.write(
-            atMillis: Int64(Date().timeIntervalSince1970 * 1000),
-            level: "info", event: "session.stop", message: "asked by the app"
-        )
-        emitStatus()
+        isRunning = false
     }
 
     /// Called on launch — including a relaunch triggered by location — so a
     /// session that was running before the process died picks straight back up.
-    func resumeIfTracking() {
-        guard config.isTracking else { return }
+    @discardableResult
+    func resumeIfTracking() -> Bool {
+        guard config.isTracking else { return false }
+        guard config.isConfigured, !config.sessionId.isEmpty, isAuthorized,
+              locationServicesEnabled()
+        else {
+            stopRuntime()
+            emitStatus()
+            return false
+        }
+
         // The path iOS uses to bring the app up in the background after the
         // process died. No Dart call comes with it, so without this line it
         // leaves no trace at all.
         GeoLogStore.shared?.write(
             atMillis: Int64(Date().timeIntervalSince1970 * 1000),
-            level: "info", event: "session.resume",
+            level: "info",
+            event: "session.resume",
             message: "launch or significant change"
         )
-        start()
+
+        return start()
     }
 
     /// Puts the collector to sleep: the GPS goes off, the detectors go on.
@@ -248,46 +291,70 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         stillSeconds: Int64
     ) {
         manager.stopUpdatingLocation()
+
         let armed = detector.arm(
             manager: manager,
             lat: anchorLat,
             lon: anchorLon,
             radiusMeters: radiusMeters
         )
+
         config.isMoving = false
+
         GeoLogStore.shared?.write(
             atMillis: Int64(Date().timeIntervalSince1970 * 1000),
-            level: "info", event: "motion.stationary",
+            level: "info",
+            event: "motion.stationary",
             message: String(
                 format: "anchor=%.5f,%.5f r=%.0fm still=%ds armed=%@",
-                anchorLat, anchorLon, radiusMeters, stillSeconds,
+                anchorLat,
+                anchorLon,
+                radiusMeters,
+                stillSeconds,
                 armed.isEmpty ? "nothing" : armed
             )
         )
+
         emitStatus()
     }
 
     /// A detector fired: the GPS comes back and the detectors stand down.
     private func wake(_ source: String) {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        guard policy.onMovementDetected(atMillis: now) else { return }
+
+        guard policy.onMovementDetected(atMillis: now) else {
+            return
+        }
+
         detector.disarm(manager: manager)
         config.isMoving = true
-        manager.distanceFilter = Self.distanceFilter(Double(config.distanceFilterMeters))
-        manager.startUpdatingLocation()
-        GeoLogStore.shared?.write(
-            atMillis: now, level: "info", event: "motion.moving", message: source
+        manager.distanceFilter = Self.distanceFilter(
+            Double(config.distanceFilterMeters)
         )
+        manager.startUpdatingLocation()
+
+        GeoLogStore.shared?.write(
+            atMillis: now,
+            level: "info",
+            event: "motion.moving",
+            message: source
+        )
+
         emitStatus()
     }
 
     func permissionName() -> String {
         switch authorizationStatus {
-        case .authorizedAlways: return "always"
-        case .authorizedWhenInUse: return "when_in_use"
-        case .denied, .restricted: return "permanently_denied"
-        case .notDetermined: return "denied"
-        @unknown default: return "denied"
+        case .authorizedAlways:
+            return "always"
+        case .authorizedWhenInUse:
+            return "when_in_use"
+        case .denied, .restricted:
+            return "permanently_denied"
+        case .notDetermined:
+            return "denied"
+        @unknown default:
+            return "denied"
         }
     }
 
@@ -311,25 +378,17 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     func statusMap() -> [String: Any] {
         [
             "is_tracking": config.isTracking,
+            "collector_running": isRunning,
             "permission": permissionName(),
             "auth_failed": config.authFailed,
             "queued_points": queue?.count() ?? 0,
             "location_services_enabled": locationServicesEnabled(),
-            // What the uploader would actually POST to, and how it last got
-            // on. Between them these turn "the queue is not draining" from a
-            // question into an answer — see `GeoTrackingStatus`.
             "upload_url": config.url,
             "last_upload": config.lastUpload,
             "precise_location": preciseLocation,
-            // Android's, and false here rather than absent so the two
-            // platforms answer the same question with the same key. iOS
-            // prompts for `Always` itself, so there is nothing to explain on
-            // its behalf, and it has no Doze exemption to be missing.
             "needs_background_rationale": false,
             "power_save_mode": ProcessInfo.processInfo.isLowPowerModeEnabled,
             "ignoring_battery_optimizations": true,
-            // Why the position has stopped changing, and why the track may
-            // start two blocks late. Neither is visible from any other field.
             "is_moving": config.isMoving,
             "motion_permission": detector.permissionName(),
         ]
@@ -347,9 +406,13 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(
-        _ manager: CLLocationManager, didExitRegion region: CLRegion
+        _ manager: CLLocationManager,
+        didExitRegion region: CLRegion
     ) {
-        guard region.identifier == MotionDetector.anchorId else { return }
+        guard region.identifier == MotionDetector.anchorId else {
+            return
+        }
+
         wake("geofence")
     }
 
@@ -375,8 +438,11 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             manager.stopUpdatingLocation()
             manager.stopMonitoringSignificantLocationChanges()
             detector.disarm(manager: manager)
+            isRunning = false
+
         case .authorizedAlways where config.isTracking:
             start()
+
         case .authorizedWhenInUse:
             // Downgraded mid-session. Background updates stay on — they are
             // allowed on this authorization too, and switching them off here
@@ -384,24 +450,26 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             // with the blue bar showing. Significant-location-change is the
             // one that genuinely needs Always, so only it goes.
             manager.stopMonitoringSignificantLocationChanges()
-            // The region goes with it: monitoring needs Always too, so an
-            // armed fence here would wake nobody and the session would stay
-            // asleep with nothing saying why.
             detector.disarm(manager: manager)
             config.isMoving = true
+
         default:
             break
         }
+
         GeoLogStore.shared?.write(
             atMillis: Int64(Date().timeIntervalSince1970 * 1000),
-            level: "warning", event: "permission.changed",
+            level: "warning",
+            event: "permission.changed",
             message: "\(permissionName()) precise=\(preciseLocation)"
         )
+
         emitStatus()
     }
 
     func locationManager(
-        _ manager: CLLocationManager, didFailWithError error: Error
+        _ manager: CLLocationManager,
+        didFailWithError error: Error
     ) {
         // Failing to get a fix is normal indoors; the queue and the session
         // both survive it, so there is nothing to do but report.
@@ -419,18 +487,18 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         // else: iOS wrote it to `UserDefaults`, exposed a getter, and never
         // read it, so the only thing spacing points out here was the distance
         // filter. One config meaning two things across the two platforms is
-        // worse than either behaviour — and unbounded, since CoreLocation is
-        // free to deliver faster than the filter suggests while accuracy
-        // improves on a stationary device.
+        // worse than either behaviour.
         //
         // Measured on the fix's own timestamp rather than the clock, matching
         // Android. An out-of-order fix reads as a negative interval and is
         // dropped, which is what we want from one.
         let floor = TimeInterval(config.minIntervalSeconds)
+
         if let last = lastRecordedAt,
            location.timestamp.timeIntervalSince(last) < floor {
             return
         }
+
         lastRecordedAt = location.timestamp
 
         // Before anything else happens to the fix: a rejected one must cost no
@@ -444,22 +512,33 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
                 location.timestamp.timeIntervalSince1970 * 1000
             )
         )
+
         guard case let .accept(lat, lon, accuracy) = verdict else {
             if case let .reject(reason) = verdict {
                 GeoLogStore.shared?.write(
-                    atMillis: Int64(location.timestamp.timeIntervalSince1970 * 1000),
-                    level: "info", event: "fix.rejected", message: reason
+                    atMillis: Int64(
+                        location.timestamp.timeIntervalSince1970 * 1000
+                    ),
+                    level: "info",
+                    event: "fix.rejected",
+                    message: reason
                 )
             }
             return
         }
+
         GeoLogStore.shared?.write(
-            atMillis: Int64(location.timestamp.timeIntervalSince1970 * 1000),
+            atMillis: Int64(
+                location.timestamp.timeIntervalSince1970 * 1000
+            ),
             level: "info",
             event: "fix.accepted",
             message: String(
                 format: "%.5f,%.5f acc %.0f→%.0f",
-                lat, lon, location.horizontalAccuracy, accuracy
+                lat,
+                lon,
+                location.horizontalAccuracy,
+                accuracy
             )
         )
 
@@ -471,10 +550,18 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             // CoreLocation reports a negative speed for "no reading", which
             // would read as motion in reverse. Zero means no information.
             speedMps: location.speed > 0 ? location.speed : 0,
-            atMillis: Int64(location.timestamp.timeIntervalSince1970 * 1000)
+            atMillis: Int64(
+                location.timestamp.timeIntervalSince1970 * 1000
+            )
         )
+
         switch decision {
-        case let .stop(anchorLat, anchorLon, radiusMeters, stillSeconds):
+        case let .stop(
+            anchorLat,
+            anchorLon,
+            radiusMeters,
+            stillSeconds
+        ):
             if stopDetectionAllowed {
                 // The fix that ended the session is still a real position and
                 // still goes into the track below.
@@ -493,38 +580,54 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
                     )
                 )
             }
-        case let .keepGoing(distanceFilterMeters, stepped, stepChanged):
-            // Assigned as it stands: this costs one assignment here, unlike
-            // Android, which has to rebuild its request.
-            manager.distanceFilter = Self.distanceFilter(distanceFilterMeters)
+
+        case let .keepGoing(
+            distanceFilterMeters,
+            stepped,
+            stepChanged
+        ):
+            manager.distanceFilter = Self.distanceFilter(
+                distanceFilterMeters
+            )
+
             if stepChanged {
                 // Logged on the step, not on every fix, so the line stays
-                // readable — this is the log the last iteration was built for.
+                // readable.
                 GeoLogStore.shared?.write(
                     atMillis: Int64(
                         location.timestamp.timeIntervalSince1970 * 1000
                     ),
-                    level: "info", event: "filter.elasticity",
+                    level: "info",
+                    event: "filter.elasticity",
                     message: String(
-                        format: "%.1fm/s → %.0fm", max(location.speed, 0), stepped
+                        format: "%.1fm/s → %.0fm",
+                        max(location.speed, 0),
+                        stepped
                     )
                 )
             }
         }
 
-        let row = GeoPointRow.from(location)
-            .movedTo(lat: lat, lon: lon, accuracy: accuracy)
+        let row = GeoPointRow.from(location, sessionId: config.sessionId)
+            .movedTo(
+                lat: lat,
+                lon: lon,
+                accuracy: accuracy
+            )
 
         queue?.enqueue(
             row,
             maxPoints: config.queueMaxPoints,
             maxAgeDays: config.queueMaxAgeDays
         )
+
         GeoLogStore.shared?.write(
             atMillis: row.recordedAtMillis,
-            level: "info", event: "queue.enqueued",
+            level: "info",
+            event: "queue.enqueued",
             message: "\(row.id) depth=\(queue?.count() ?? 0)"
         )
+
         GeoEventBus.emitPoint(PointJson.encodeOne(row))
         onQueueGrew?()
     }
@@ -539,9 +642,9 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
     /// The position now, for a caller that cannot wait for the session's next
     /// point — which, behind a distance filter, may be a long way off.
     ///
-    /// Neither queued nor pushed onto the points stream: this is a read, and a
-    /// track that grew every time a screen asked where it was would no longer
-    /// be a record of where the device went.
+    /// Neither queued nor pushed onto the points stream: this is a read, and
+    /// a track that grew every time a screen asked where it was would no
+    /// longer be a record of where the device went.
     ///
     /// Falls back to a stale cached fix when the fresh one does not arrive in
     /// time. Somewhere the reader was is worth more to a map than nothing, and
@@ -561,9 +664,17 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         }
 
         let cached = manager.location
+
         if let cached,
            -cached.timestamp.timeIntervalSinceNow <= Self.cacheMaxAge {
-            completion(PointJson.encodeOne(GeoPointRow.from(cached)))
+            completion(
+                PointJson.encodeOne(
+                    GeoPointRow.from(
+                        cached,
+                        sessionId: config.sessionId
+                    )
+                )
+            )
             return
         }
 
@@ -572,7 +683,15 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
                 completion(nil)
                 return
             }
-            completion(PointJson.encodeOne(GeoPointRow.from(location)))
+
+            completion(
+                PointJson.encodeOne(
+                    GeoPointRow.from(
+                        location,
+                        sessionId: self.config.sessionId
+                    )
+                )
+            )
         }
     }
 

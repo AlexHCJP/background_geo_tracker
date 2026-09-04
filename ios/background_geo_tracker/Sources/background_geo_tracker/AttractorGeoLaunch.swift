@@ -35,11 +35,13 @@ public enum AttractorGeoLaunch {
     ///
     /// Does nothing otherwise — a user who switched sharing off, or signed
     /// out, gets no location manager and no upload timer out of this.
-    public static func resumeIfTracking() {
-        guard GeoConfigStore().isTracking else { return }
+    @discardableResult
+    public static func resumeIfTracking() -> Bool {
+        guard GeoConfigStore().isTracking else { return false }
         wireUploader()
-        GeoTracker.shared.resumeIfTracking()
+        guard GeoTracker.shared.resumeIfTracking() else { return false }
         Uploader.shared.startPeriodicDrain()
+        return true
     }
 
     /// Tells the uploader about each new point, so a batch that is already

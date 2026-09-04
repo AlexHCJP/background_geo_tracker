@@ -9,7 +9,78 @@ import 'package:background_geo_tracker/src/geo_notification_config.dart';
 class GeoUploadConfig {
   /// Every knob stated outright, for an app that has a reason to disagree with
   /// the defaults. [GeoUploadConfig.standard] is the one to reach for first.
-  const GeoUploadConfig({
+  factory GeoUploadConfig({
+    required String sessionId,
+    required String url,
+    required Map<String, String> headers,
+    required int distanceFilterMeters,
+    required int minIntervalSeconds,
+    required int batchSize,
+    required int sendAfterPoints,
+    required int uploadIntervalSeconds,
+    required int queueMaxPoints,
+    required int queueMaxAgeDays,
+    required GeoFilterConfig filter,
+    required GeoMotionConfig motion,
+    required GeoNotificationConfig notification,
+  }) {
+    final normalizedSessionId = sessionId.trim();
+    if (normalizedSessionId.isEmpty) {
+      throw ArgumentError.value(sessionId, 'sessionId', 'must not be empty');
+    }
+
+    final endpoint = Uri.tryParse(url.trim());
+    if (endpoint == null ||
+        endpoint.scheme != 'https' ||
+        endpoint.host.isEmpty ||
+        endpoint.hasFragment) {
+      throw ArgumentError.value(
+        url,
+        'url',
+        'must be an absolute HTTPS URL without a fragment',
+      );
+    }
+    if (headers.keys.any((name) => name.trim().isEmpty)) {
+      throw ArgumentError.value(headers, 'headers', 'names must not be empty');
+    }
+    if (distanceFilterMeters < 0) {
+      throw ArgumentError.value(
+        distanceFilterMeters,
+        'distanceFilterMeters',
+        'must be zero or greater',
+      );
+    }
+    _requirePositive(minIntervalSeconds, 'minIntervalSeconds');
+    _requirePositive(batchSize, 'batchSize');
+    _requirePositive(sendAfterPoints, 'sendAfterPoints');
+    _requirePositive(uploadIntervalSeconds, 'uploadIntervalSeconds');
+    _requirePositive(queueMaxPoints, 'queueMaxPoints');
+    _requirePositive(queueMaxAgeDays, 'queueMaxAgeDays');
+    if (notification.title.trim().isEmpty || notification.body.trim().isEmpty) {
+      throw ArgumentError(
+        'notificationTitle and notificationBody must not be empty',
+      );
+    }
+
+    return GeoUploadConfig._(
+      sessionId: normalizedSessionId,
+      url: endpoint.toString(),
+      headers: Map<String, String>.unmodifiable(headers),
+      distanceFilterMeters: distanceFilterMeters,
+      minIntervalSeconds: minIntervalSeconds,
+      batchSize: batchSize,
+      sendAfterPoints: sendAfterPoints,
+      uploadIntervalSeconds: uploadIntervalSeconds,
+      queueMaxPoints: queueMaxPoints,
+      queueMaxAgeDays: queueMaxAgeDays,
+      filter: filter,
+      motion: motion,
+      notification: notification,
+    );
+  }
+
+  const GeoUploadConfig._({
+    required this.sessionId,
     required this.url,
     required this.headers,
     required this.distanceFilterMeters,
@@ -42,6 +113,7 @@ class GeoUploadConfig {
   /// offline drained as one round trip per point and a single failure among
   /// them put the whole queue on the retry backoff.
   factory GeoUploadConfig.standard({
+    required String sessionId,
     required String url,
     required Map<String, String> headers,
     required GeoNotificationConfig notification,
@@ -55,6 +127,7 @@ class GeoUploadConfig {
     GeoFilterConfig? filter,
     GeoMotionConfig? motion,
   }) => GeoUploadConfig(
+    sessionId: sessionId,
     url: url,
     headers: headers,
     distanceFilterMeters: distanceFilterMeters,
@@ -71,6 +144,12 @@ class GeoUploadConfig {
     motion: motion ?? GeoMotionConfig.standard(),
     notification: notification,
   );
+
+  /// Backend-issued identifier of the one live-sharing session these points
+  /// belong to. It is persisted with every row, not merely with the current
+  /// configuration, so an offline tail can never be mistaken for a later
+  /// session on the same device.
+  final String sessionId;
 
   /// The endpoint the batches are posted to, whole — for example
   /// `https://api.example.com/geo/v1/points`. The native uploader POSTs a JSON
@@ -168,6 +247,7 @@ class GeoUploadConfig {
   /// The form the method channel carries to the native side. snake_case
   /// because Kotlin and Swift read these keys by name.
   Map<String, Object?> toMap() => <String, Object?>{
+    'session_id': sessionId,
     'url': url,
     'headers': headers,
     'distance_filter_meters': distanceFilterMeters,
@@ -181,4 +261,10 @@ class GeoUploadConfig {
     ...motion.toMap(),
     ...notification.toMap(),
   };
+}
+
+void _requirePositive(int value, String name) {
+  if (value <= 0) {
+    throw ArgumentError.value(value, name, 'must be greater than zero');
+  }
 }

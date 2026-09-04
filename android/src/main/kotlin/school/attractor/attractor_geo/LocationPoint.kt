@@ -15,8 +15,9 @@ import school.attractor.attractor_geo.db.PointRow
  * later through the session must not differ in what they say about altitude,
  * speed or the battery.
  */
-fun Location.toPointRow(context: Context): PointRow = PointRow(
+fun Location.toPointRow(context: Context, sessionId: String = ""): PointRow = PointRow(
     id = UUID.randomUUID().toString(),
+    sessionId = sessionId,
     lat = latitude,
     lon = longitude,
     accuracy = accuracy.toDouble(),

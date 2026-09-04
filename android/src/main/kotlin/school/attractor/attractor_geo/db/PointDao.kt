@@ -10,6 +10,7 @@ class PointDao(private val helper: SQLiteOpenHelper) {
     fun insert(point: PointRow) {
         val values = ContentValues().apply {
             put("id", point.id)
+            put("session_id", point.sessionId)
             put("lat", point.lat)
             put("lon", point.lon)
             put("accuracy", point.accuracy)
@@ -44,6 +45,24 @@ class PointDao(private val helper: SQLiteOpenHelper) {
         )
         return cursor.use { it.readAll() }
     }
+
+    fun oldestForSession(sessionId: String, limit: Int): List<PointRow> {
+        val nowMillis = System.currentTimeMillis()
+        val cursor = helper.readableDatabase.rawQuery(
+            "SELECT * FROM ${GeoDatabase.TABLE} " +
+                "WHERE session_id = ? AND deferred_until_millis <= ? " +
+                "ORDER BY recorded_at_millis ASC LIMIT ?",
+            arrayOf(sessionId, nowMillis.toString(), limit.toString()),
+        )
+        return cursor.use { it.readAll() }
+    }
+
+    fun countForSession(sessionId: String): Int = helper.readableDatabase
+        .rawQuery(
+            "SELECT COUNT(*) FROM ${GeoDatabase.TABLE} WHERE session_id = ?",
+            arrayOf(sessionId),
+        )
+        .use { if (it.moveToFirst()) it.getInt(0) else 0 }
 
     /**
      * Stands the given points down until [untilMillis].
@@ -109,6 +128,7 @@ class PointDao(private val helper: SQLiteOpenHelper) {
         while (moveToNext()) {
             rows += PointRow(
                 id = getString(getColumnIndexOrThrow("id")),
+                sessionId = getString(getColumnIndexOrThrow("session_id")),
                 lat = getDouble(getColumnIndexOrThrow("lat")),
                 lon = getDouble(getColumnIndexOrThrow("lon")),
                 accuracy = getDouble(getColumnIndexOrThrow("accuracy")),

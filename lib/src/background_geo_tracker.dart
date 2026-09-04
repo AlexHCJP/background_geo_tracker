@@ -44,8 +44,9 @@ class BackgroundGeoTracker {
   Future<void> start() => _methods.invokeMethod<void>('start');
 
   /// Ends the session and shuts the collector down for real — no notification,
-  /// no wake-ups, no battery drain. Queued points survive and go out on the
-  /// next session.
+  /// no wake-ups, no battery drain. A final best-effort upload is scheduled;
+  /// anything still offline remains tagged with this session and can never be
+  /// attributed to a later one.
   Future<void> stop() => _methods.invokeMethod<void>('stop');
 
   /// Ends the session and forgets everything that belonged to whoever was

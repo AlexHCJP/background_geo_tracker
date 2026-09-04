@@ -16,6 +16,7 @@ class PointJsonTest {
         batteryLevel: Double? = 0.62,
     ) = PointRow(
         id = id,
+        sessionId = "consent-42",
         lat = 55.751244,
         lon = 37.618423,
         accuracy = 8.5,
@@ -32,6 +33,7 @@ class PointJsonTest {
         val json = PointJson.encodeOne(row())
 
         assertEquals("b7e4", json.getString("id"))
+        assertEquals("consent-42", json.getString("session_id"))
         assertEquals(55.751244, json.getDouble("lat"), 1e-9)
         assertEquals(37.618423, json.getDouble("lon"), 1e-9)
         assertEquals(8.5, json.getDouble("accuracy"), 1e-9)

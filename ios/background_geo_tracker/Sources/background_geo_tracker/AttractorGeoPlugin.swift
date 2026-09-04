@@ -38,6 +38,7 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
         registrar.addApplicationDelegate(instance)
 
         AttractorGeoLaunch.wireUploader()
+        _ = AttractorGeoLaunch.resumeIfTracking()
     }
 
     /// Covers the launches that reach a registered plugin: a normal one, and —
@@ -56,8 +57,9 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any] = [:]
     ) -> Bool {
         if launchOptions[.location] != nil || config.isTracking {
-            GeoTracker.shared.resumeIfTracking()
-            Uploader.shared.startPeriodicDrain()
+            if GeoTracker.shared.resumeIfTracking() {
+                Uploader.shared.startPeriodicDrain()
+            }
         }
         return true
     }
@@ -77,18 +79,77 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
                 )
                 return
             }
-            config.save(arguments)
-            GeoLogStore.shared?.write(
-                atMillis: Int64(Date().timeIntervalSince1970 * 1000),
-                level: "info",
-                event: "config.saved",
-                // The URL only. `config.headers` carries a bearer token and
-                // must never reach the log in any form.
-                message: "url=\(config.url)"
-            )
-            result(nil)
+
+            let requestedSession = arguments["session_id"] as? String ?? ""
+
+            if config.isTracking && requestedSession != config.sessionId {
+                result(
+                    FlutterError(
+                        code: "session_active",
+                        message: "Stop the active tracking session before configuring another one",
+                        details: nil
+                    )
+                )
+                return
+            }
+
+            do {
+                try config.save(arguments)
+
+                GeoLogStore.shared?.write(
+                    atMillis: Int64(Date().timeIntervalSince1970 * 1000),
+                    level: "info",
+                    event: "config.saved",
+                    // The URL only. `config.headers` carries a bearer token and
+                    // must never reach the log in any form.
+                    message: "url=\(config.url)"
+                )
+
+                result(nil)
+            } catch {
+                result(
+                    FlutterError(
+                        code: "invalid_config",
+                        message: error.localizedDescription,
+                        details: nil
+                    )
+                )
+            }
 
         case "start":
+            guard config.isConfigured else {
+                result(
+                    FlutterError(
+                        code: "not_configured",
+                        message: "Configure a tracking session before starting it",
+                        details: nil
+                    )
+                )
+                return
+            }
+
+            guard GeoTracker.shared.permissionName() == "always" else {
+                result(
+                    FlutterError(
+                        code: "background_permission_required",
+                        message: "Always allow location access before starting tracking",
+                        details: nil
+                    )
+                )
+                return
+            }
+
+            guard GeoTracker.shared.locationServicesEnabled() else {
+                result(
+                    FlutterError(
+                        code: "location_services_disabled",
+                        message: "Turn on device location services before starting tracking",
+                        details: nil
+                    )
+                )
+                return
+            }
+
             // Refused rather than opened as a session that cannot collect —
             // the same answer, with the same code, that Android has always
             // given here. `GeoAutoSession` reads a started session as reason
@@ -98,19 +159,19 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
                 result(
                     FlutterError(
                         code: "permission_denied",
-                        message:
-                            "Location permission is required to start tracking",
+                        message: "Location permission is required to start tracking",
                         details: nil
                     )
                 )
                 return
             }
+
             Uploader.shared.startPeriodicDrain()
             result(nil)
 
         case "stop":
             GeoTracker.shared.stop()
-            Uploader.shared.stopPeriodicDrain()
+            Uploader.shared.finishAndStop()
             result(nil)
 
         case "reset":

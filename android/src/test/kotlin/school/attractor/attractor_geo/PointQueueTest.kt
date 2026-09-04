@@ -35,8 +35,13 @@ class PointQueueTest {
     @After
     fun tearDown() = db.close()
 
-    private fun row(id: String, atMillis: Long) = PointRow(
+    private fun row(
+        id: String,
+        atMillis: Long,
+        sessionId: String = "consent-42",
+    ) = PointRow(
         id = id,
+        sessionId = sessionId,
         lat = 55.75,
         lon = 37.61,
         accuracy = 10.0,
@@ -62,6 +67,17 @@ class PointQueueTest {
         repeat(5) { queue.enqueue(row("p$it", now + it), 100, 7) }
 
         assertEquals(2, queue.oldest(2, now).size)
+    }
+
+    @Test
+    fun `session query never returns another session's points`() {
+        queue.enqueue(row("old", now, sessionId = "consent-old"), 100, 7)
+        queue.enqueue(row("new", now + 1, sessionId = "consent-new"), 100, 7)
+
+        assertEquals(
+            listOf("new"),
+            queue.oldestForSession("consent-new", 10).map { it.id },
+        )
     }
 
     @Test
@@ -134,6 +150,7 @@ class PointQueueTest {
         assertEquals(null, stored.heading)
         assertEquals(null, stored.batteryLevel)
         assertEquals(55.75, stored.lat, 1e-9)
+        assertEquals("consent-42", stored.sessionId)
     }
 
     @Test
@@ -198,7 +215,7 @@ class PointQueueTest {
     }
 
     @Test
-    fun `upgrading from version 1 keeps the queued points`() {
+    fun `upgrading from version 1 drops points without a session id`() {
         // The cost of getting this wrong is not a red test — it is every
         // updating user's queue, silently deleted on the launch after an
         // update.
@@ -237,6 +254,6 @@ class PointQueueTest {
         val survivors = PointQueue(upgraded.points()).oldest(10, now)
         upgraded.close()
 
-        assertEquals(listOf("survivor"), survivors.map { it.id })
+        assertTrue(survivors.isEmpty())
     }
 }

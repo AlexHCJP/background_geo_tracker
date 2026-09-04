@@ -17,6 +17,7 @@ class GeoDatabase private constructor(context: Context, name: String?) :
             """
             CREATE TABLE $TABLE (
                 id TEXT PRIMARY KEY NOT NULL,
+                session_id TEXT NOT NULL,
                 lat REAL NOT NULL,
                 lon REAL NOT NULL,
                 accuracy REAL NOT NULL,
@@ -44,7 +45,8 @@ class GeoDatabase private constructor(context: Context, name: String?) :
      * of the moment it happens: the drop lands on the launch right after an
      * update, taking whatever the user collected offline with it, for no
      * better reason than that a column was added. Every migration from here on
-     * adds what it needs and leaves the rows alone.
+     * adds what it needs and leaves the rows alone, except for rows that
+     * cannot be attributed to any session.
      */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
@@ -53,13 +55,20 @@ class GeoDatabase private constructor(context: Context, name: String?) :
                     "deferred_until_millis INTEGER NOT NULL DEFAULT 0",
             )
         }
+        if (oldVersion < 3) {
+            db.execSQL(
+                "ALTER TABLE $TABLE ADD COLUMN " +
+                    "session_id TEXT NOT NULL DEFAULT ''",
+            )
+            db.execSQL("DELETE FROM $TABLE WHERE session_id = ''")
+        }
     }
 
     fun points(): PointDao = PointDao(this)
 
     companion object {
         const val TABLE = "points"
-        private const val VERSION = 2
+        private const val VERSION = 3
         private const val FILE_NAME = "attractor_geo.db"
 
         @Volatile

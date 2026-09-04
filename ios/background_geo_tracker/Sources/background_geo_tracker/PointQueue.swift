@@ -52,9 +52,15 @@ final class PointQueue {
         store.defer(ids: ids, untilMillis: untilMillis)
     }
 
+    func oldest(sessionId: String, limit: Int) -> [GeoPointRow] {
+        store.oldest(sessionId: sessionId, limit: limit)
+    }
+
     func drop(ids: [String]) { store.delete(ids: ids) }
 
     func count() -> Int { store.count() }
+
+    func count(sessionId: String) -> Int { store.count(sessionId: sessionId) }
 
     /// Throws the whole queue away. For signing out: these points belong to
     /// whoever recorded them, and must not be uploaded by the next account on

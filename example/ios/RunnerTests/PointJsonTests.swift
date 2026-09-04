@@ -12,6 +12,7 @@ final class PointJsonTests: XCTestCase {
     ) -> GeoPointRow {
         GeoPointRow(
             id: id,
+            sessionId: "consent-42",
             lat: 55.751244,
             lon: 37.618423,
             accuracy: 8.5,
@@ -28,6 +29,7 @@ final class PointJsonTests: XCTestCase {
         let json = PointJson.encodeOne(row())
 
         XCTAssertEqual(json["id"] as? String, "b7e4")
+        XCTAssertEqual(json["session_id"] as? String, "consent-42")
         XCTAssertEqual(json["lat"] as? Double, 55.751244)
         XCTAssertEqual(json["lon"] as? Double, 37.618423)
         XCTAssertEqual(json["accuracy"] as? Double, 8.5)

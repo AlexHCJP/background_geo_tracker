@@ -12,7 +12,10 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        if (!GeoConfigStore(context).isTracking) return
-        GeoTrackingService.start(context)
+        val config = GeoConfigStore(context)
+        if (!config.isTracking || !config.isConfigured()) return
+        if (!GeoStatus.hasBackgroundLocation(context)) return
+        if (!GeoStatus.locationEnabled(context)) return
+        runCatching { GeoTrackingService.start(context) }
     }
 }

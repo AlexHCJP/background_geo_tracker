@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   GeoUploadConfig standard() => GeoUploadConfig.standard(
+    sessionId: 'consent-42',
     url: 'https://api.attractor.school/v1/tracking/points',
     headers: const <String, String>{'Authorization': 'Bearer token'},
     notification: GeoNotificationConfig.standard(
@@ -29,6 +30,7 @@ void main() {
 
   test('toMap uses the wire keys the native layer reads', () {
     expect(standard().toMap(), <String, Object?>{
+      'session_id': 'consent-42',
       'url': 'https://api.attractor.school/v1/tracking/points',
       'headers': <String, String>{'Authorization': 'Bearer token'},
       'distance_filter_meters': 20,
@@ -68,6 +70,7 @@ void main() {
     // What a live-position screen needs: post the moment a point exists, but
     // let a backlog leave fifty at a time rather than one round trip each.
     final config = GeoUploadConfig.standard(
+      sessionId: 'consent-42',
       url: 'https://example.com/points',
       headers: const <String, String>{},
       notification: GeoNotificationConfig.standard(
@@ -86,6 +89,7 @@ void main() {
 
   test('the notification config states what the user will see', () {
     final map = GeoUploadConfig.standard(
+      sessionId: 'consent-42',
       url: 'https://example.com/points',
       headers: const <String, String>{},
       notification: GeoNotificationConfig.standard(
@@ -124,6 +128,7 @@ void main() {
 
   test('an overridden motion config replaces the defaults', () {
     final map = GeoUploadConfig.standard(
+      sessionId: 'consent-42',
       url: 'https://example.com/points',
       headers: const <String, String>{},
       notification: GeoNotificationConfig.standard(
