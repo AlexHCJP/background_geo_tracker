@@ -54,13 +54,19 @@ class GeoDatabase private constructor(context: Context, name: String?) :
                     "deferred_until_millis INTEGER NOT NULL DEFAULT 0",
             )
         }
+        if (oldVersion < 3) {
+            db.execSQL(
+                "ALTER TABLE $TABLE ADD COLUMN " +
+                    "session_id TEXT NOT NULL DEFAULT ''",
+            )
+        }
     }
 
     fun points(): PointDao = PointDao(this)
 
     companion object {
         const val TABLE = "points"
-        private const val VERSION = 2
+        private const val VERSION = 3
         private const val FILE_NAME = "attractor_geo.db"
 
         @Volatile
