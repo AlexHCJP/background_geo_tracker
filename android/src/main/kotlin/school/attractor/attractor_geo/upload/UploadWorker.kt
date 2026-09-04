@@ -77,7 +77,7 @@ class UploadWorker(
         val queue = PointQueue(GeoDatabase.open(applicationContext).points())
 
         while (true) {
-            val batch = queue.oldest(config.batchSize, System.currentTimeMillis())
+            val batch = queue.oldestForSession(config.sessionId, config.batchSize)
             if (batch.isEmpty()) return@withContext Result.success()
 
             val request = Request.Builder()
