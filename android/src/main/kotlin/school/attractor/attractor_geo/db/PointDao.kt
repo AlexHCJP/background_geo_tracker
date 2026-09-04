@@ -47,11 +47,12 @@ class PointDao(private val helper: SQLiteOpenHelper) {
     }
 
     fun oldestForSession(sessionId: String, limit: Int): List<PointRow> {
+        val nowMillis = System.currentTimeMillis()
         val cursor = helper.readableDatabase.rawQuery(
             "SELECT * FROM ${GeoDatabase.TABLE} " +
-                "WHERE session_id = ? " +
+                "WHERE session_id = ? AND deferred_until_millis <= ? " +
                 "ORDER BY recorded_at_millis ASC LIMIT ?",
-            arrayOf(sessionId, limit.toString()),
+            arrayOf(sessionId, nowMillis.toString(), limit.toString()),
         )
         return cursor.use { it.readAll() }
     }
