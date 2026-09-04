@@ -14,7 +14,7 @@ final class MotionDetector {
     /// Always on the main queue, because both sources deliver there.
     var onMovement: ((String) -> Void)?
 
-    static let anchorId = "attractor_geo_anchor"
+    static let anchorId = "background_geo_tracker_anchor"
 
     private let motion = CMMotionActivityManager()
     private var watchingActivity = false

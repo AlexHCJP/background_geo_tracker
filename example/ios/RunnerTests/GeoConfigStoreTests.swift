@@ -12,7 +12,7 @@ final class GeoConfigStoreTests: XCTestCase {
 
     private let saved: [String: Any] = [
         "session_id": "consent-42",
-        "url": "https://api.attractor.school/v1/tracking/points",
+        "url": "https://api.example.com/v1/tracking/points",
         "headers": ["Authorization": "Bearer secret"],
         "distance_filter_meters": 20,
         "min_interval_seconds": 10,

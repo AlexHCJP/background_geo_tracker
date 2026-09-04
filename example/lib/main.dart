@@ -52,7 +52,7 @@ class _HarnessScreenState extends State<HarnessScreen> {
         url: _url,
         headers: const <String, String>{'Authorization': 'Bearer harness'},
         notification: GeoNotificationConfig.standard(
-          title: 'Attractor tracking',
+          title: 'Background geo tracking',
           body: 'Recording your route',
           channelName: 'Route tracking',
         ),

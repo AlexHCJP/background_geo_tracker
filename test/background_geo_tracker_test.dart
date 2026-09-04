@@ -5,9 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const methodChannel = MethodChannel('school.attractor/geo');
-  const pointsChannel = EventChannel('school.attractor/geo/points');
-  const statusChannel = EventChannel('school.attractor/geo/status');
+  const methodChannel = MethodChannel('background_geo_tracker/geo');
+  const pointsChannel = EventChannel('background_geo_tracker/geo/points');
+  const statusChannel = EventChannel('background_geo_tracker/geo/status');
 
   late List<MethodCall> calls;
 
@@ -81,7 +81,7 @@ void main() {
   test('configure forwards the serialized config', () async {
     final config = GeoUploadConfig.standard(
       sessionId: 'consent-42',
-      url: 'https://api.attractor.school/v1/tracking/points',
+      url: 'https://api.example.com/v1/tracking/points',
       headers: const <String, String>{'Authorization': 'Bearer token'},
       notification: GeoNotificationConfig.standard(
         title: 'Tracking',

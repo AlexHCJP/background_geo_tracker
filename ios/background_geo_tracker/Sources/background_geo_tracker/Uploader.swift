@@ -12,7 +12,7 @@ final class Uploader {
     private let config = GeoConfigStore()
     private var queue: PointQueue? { PointQueue.shared }
     private let session = URLSession(configuration: .default)
-    private let serial = DispatchQueue(label: "school.attractor.geo.upload")
+    private let serial = DispatchQueue(label: "dev.background_geo_tracker.plugin.upload")
 
     private var draining = false
     private var attempt = 0

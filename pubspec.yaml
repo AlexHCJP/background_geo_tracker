@@ -2,7 +2,7 @@ name: background_geo_tracker
 description: >-
   Background route tracking for iOS and Android, collected and uploaded in
   native code.
-version: 0.10.0
+version: 0.11.0
 
 homepage: https://github.com/tahayildirm/background_geo_tracker
 repository: https://github.com/tahayildirm/background_geo_tracker
@@ -37,7 +37,7 @@ flutter:
     # two to disagree.
     platforms:
       android:
-        package: school.attractor.attractor_geo
-        pluginClass: AttractorGeoPlugin
+        package: dev.background_geo_tracker.plugin
+        pluginClass: BackgroundGeoTrackerPlugin
       ios:
-        pluginClass: AttractorGeoPlugin
+        pluginClass: BackgroundGeoTrackerPlugin
