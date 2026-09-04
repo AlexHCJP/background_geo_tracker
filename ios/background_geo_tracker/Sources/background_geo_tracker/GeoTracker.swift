@@ -251,8 +251,15 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
 
     /// Called on launch — including a relaunch triggered by location — so a
     /// session that was running before the process died picks straight back up.
-    func resumeIfTracking() {
-        guard config.isTracking else { return }
+    @discardableResult
+    func resumeIfTracking() -> Bool {
+        guard config.isTracking else { return false }
+        guard config.isConfigured, !config.sessionId.isEmpty, isAuthorized,
+              locationServicesEnabled()
+        else {
+            stop()
+            return false
+        }
 
         // The path iOS uses to bring the app up in the background after the
         // process died. No Dart call comes with it, so without this line it
@@ -264,7 +271,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             message: "launch or significant change"
         )
 
-        start()
+        return start()
     }
 
     /// Puts the collector to sleep: the GPS goes off, the detectors go on.

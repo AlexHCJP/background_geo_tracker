@@ -38,7 +38,7 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
         registrar.addApplicationDelegate(instance)
 
         AttractorGeoLaunch.wireUploader()
-        AttractorGeoLaunch.resumeIfTracking()
+        _ = AttractorGeoLaunch.resumeIfTracking()
     }
 
     /// Covers the launches that reach a registered plugin: a normal one, and —
@@ -57,8 +57,9 @@ public class AttractorGeoPlugin: NSObject, FlutterPlugin {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any] = [:]
     ) -> Bool {
         if launchOptions[.location] != nil || config.isTracking {
-            GeoTracker.shared.resumeIfTracking()
-            Uploader.shared.startPeriodicDrain()
+            if GeoTracker.shared.resumeIfTracking() {
+                Uploader.shared.startPeriodicDrain()
+            }
         }
         return true
     }
