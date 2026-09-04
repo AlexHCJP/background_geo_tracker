@@ -4,7 +4,7 @@ import Security
 /// Just enough Keychain for one string: the upload headers carry a bearer
 /// token, which does not belong in UserDefaults.
 enum Keychain {
-    private static let service = "com.okulmobil.background_geo_tracker"
+    private static let service = "school.attractor.attractor_geo"
 
     @discardableResult
     static func set(_ value: String, account: String) -> Bool {
