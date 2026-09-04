@@ -73,11 +73,19 @@ class UploadWorker(
                 },
             )
         }
+        val sessionId = config.sessionId
+        val headers = config.headers
 
         val queue = PointQueue(GeoDatabase.open(applicationContext).points())
+        fun isStaleSession(): Boolean = config.sessionId != sessionId
+        fun writeLastUpload(value: String) {
+            if (!isStaleSession()) {
+                config.lastUpload = value
+            }
+        }
 
         while (true) {
-            val batch = queue.oldestForSession(config.sessionId, config.batchSize)
+            val batch = queue.oldestForSession(sessionId, config.batchSize)
             if (batch.isEmpty()) return@withContext Result.success()
 
             val request = Request.Builder()
@@ -87,7 +95,7 @@ class UploadWorker(
                         .toRequestBody("application/json".toMediaType()),
                 )
                 .apply {
-                    config.headers.forEach { (name, value) ->
+                    headers.forEach { (name, value) ->
                         header(name, value)
                     }
                 }
@@ -102,11 +110,11 @@ class UploadWorker(
             val outcome = try {
                 http.newCall(request).execute().use {
                     val classified = UploadPolicy.classify(it.code)
-                    config.lastUpload = if (classified == UploadOutcome.SUCCESS) {
+                    writeLastUpload(if (classified == UploadOutcome.SUCCESS) {
                         "ok (${batch.size} points)"
                     } else {
                         "http ${it.code}"
-                    }
+                    })
                     // Body only on a non-2xx, and truncated: it is what turns
                     // "http 422" into "points.bad_coordinates". A 2xx body is
                     // noise, and any body at all is data from the server.
@@ -126,7 +134,7 @@ class UploadWorker(
                     classified
                 }
             } catch (e: IOException) {
-                config.lastUpload = "network: ${e.message ?: "failed"}"
+                writeLastUpload("network: ${e.message ?: "failed"}")
                 logs.write(
                     System.currentTimeMillis(), "warning", "upload.result",
                     "network after ${System.currentTimeMillis() - startedAt}ms: " +
@@ -155,10 +163,12 @@ class UploadWorker(
                 }
 
                 UploadOutcome.AUTH_FAILED -> {
-                    config.authFailed = true
-                    GeoEventBus.emitStatus(
-                        GeoStatus.map(applicationContext, config, queue.count()),
-                    )
+                    if (!isStaleSession()) {
+                        config.authFailed = true
+                        GeoEventBus.emitStatus(
+                            GeoStatus.map(applicationContext, config, queue.count()),
+                        )
+                    }
                     return@withContext Result.success()
                 }
 

@@ -430,7 +430,10 @@ class GeoTrackingService : Service() {
                 row.toEventMap(),
             )
 
-            if (queue.count() >= config.sendAfterPoints) {
+            if (
+                queue.countForSession(config.sessionId) >=
+                config.sendAfterPoints
+            ) {
                 UploadWorker.enqueueNow(
                     this@GeoTrackingService,
                 )

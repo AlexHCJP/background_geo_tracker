@@ -30,6 +30,8 @@ class PointQueue(private val dao: PointDao) {
 
     fun count(): Int = dao.count()
 
+    fun countForSession(sessionId: String): Int = dao.countForSession(sessionId)
+
     /**
      * Throws the whole queue away. For signing out: these points belong to
      * whoever recorded them, and must not be uploaded by the next account on

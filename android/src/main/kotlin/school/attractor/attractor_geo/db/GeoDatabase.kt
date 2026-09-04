@@ -45,7 +45,8 @@ class GeoDatabase private constructor(context: Context, name: String?) :
      * of the moment it happens: the drop lands on the launch right after an
      * update, taking whatever the user collected offline with it, for no
      * better reason than that a column was added. Every migration from here on
-     * adds what it needs and leaves the rows alone.
+     * adds what it needs and leaves the rows alone, except for rows that
+     * cannot be attributed to any session.
      */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
@@ -59,6 +60,7 @@ class GeoDatabase private constructor(context: Context, name: String?) :
                 "ALTER TABLE $TABLE ADD COLUMN " +
                     "session_id TEXT NOT NULL DEFAULT ''",
             )
+            db.execSQL("DELETE FROM $TABLE WHERE session_id = ''")
         }
     }
 

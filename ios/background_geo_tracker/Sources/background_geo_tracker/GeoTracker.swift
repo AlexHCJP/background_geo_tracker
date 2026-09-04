@@ -232,12 +232,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
 
     func stop() {
         config.isTracking = false
-        detector.disarm(manager: manager)
-        config.isMoving = true
-        manager.stopUpdatingLocation()
-        manager.stopMonitoringSignificantLocationChanges()
-        manager.allowsBackgroundLocationUpdates = false
-        isRunning = false
+        stopRuntime()
 
         GeoLogStore.shared?.write(
             atMillis: Int64(Date().timeIntervalSince1970 * 1000),
@@ -249,6 +244,15 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         emitStatus()
     }
 
+    private func stopRuntime() {
+        detector.disarm(manager: manager)
+        config.isMoving = true
+        manager.stopUpdatingLocation()
+        manager.stopMonitoringSignificantLocationChanges()
+        manager.allowsBackgroundLocationUpdates = false
+        isRunning = false
+    }
+
     /// Called on launch — including a relaunch triggered by location — so a
     /// session that was running before the process died picks straight back up.
     @discardableResult
@@ -257,7 +261,8 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
         guard config.isConfigured, !config.sessionId.isEmpty, isAuthorized,
               locationServicesEnabled()
         else {
-            stop()
+            stopRuntime()
+            emitStatus()
             return false
         }
 

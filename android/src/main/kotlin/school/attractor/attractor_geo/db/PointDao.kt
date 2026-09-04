@@ -57,6 +57,13 @@ class PointDao(private val helper: SQLiteOpenHelper) {
         return cursor.use { it.readAll() }
     }
 
+    fun countForSession(sessionId: String): Int = helper.readableDatabase
+        .rawQuery(
+            "SELECT COUNT(*) FROM ${GeoDatabase.TABLE} WHERE session_id = ?",
+            arrayOf(sessionId),
+        )
+        .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+
     /**
      * Stands the given points down until [untilMillis].
      *

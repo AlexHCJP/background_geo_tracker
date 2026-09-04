@@ -215,7 +215,7 @@ class PointQueueTest {
     }
 
     @Test
-    fun `upgrading from version 1 keeps the queued points`() {
+    fun `upgrading from version 1 drops points without a session id`() {
         // The cost of getting this wrong is not a red test — it is every
         // updating user's queue, silently deleted on the launch after an
         // update.
@@ -254,6 +254,6 @@ class PointQueueTest {
         val survivors = PointQueue(upgraded.points()).oldest(10, now)
         upgraded.close()
 
-        assertEquals(listOf("survivor"), survivors.map { it.id })
+        assertTrue(survivors.isEmpty())
     }
 }

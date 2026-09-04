@@ -60,6 +60,8 @@ final class PointQueue {
 
     func count() -> Int { store.count() }
 
+    func count(sessionId: String) -> Int { store.count(sessionId: sessionId) }
+
     /// Throws the whole queue away. For signing out: these points belong to
     /// whoever recorded them, and must not be uploaded by the next account on
     /// this device.

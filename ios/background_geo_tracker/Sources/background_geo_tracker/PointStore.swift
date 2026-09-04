@@ -447,6 +447,39 @@ final class PointStore {
             : 0
     }
 
+    func count(sessionId: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var statement: OpaquePointer?
+
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT COUNT(*) FROM points WHERE session_id = ?",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK else {
+            return 0
+        }
+
+        defer {
+            sqlite3_finalize(statement)
+        }
+
+        sqlite3_bind_text(
+            statement,
+            1,
+            sessionId,
+            -1,
+            Self.transient
+        )
+
+        return sqlite3_step(statement) == SQLITE_ROW
+            ? Int(sqlite3_column_int(statement, 0))
+            : 0
+    }
+
     func deleteOlderThan(_ cutoffMillis: Int64) {
         lock.lock()
         defer { lock.unlock() }

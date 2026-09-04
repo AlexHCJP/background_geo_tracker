@@ -30,6 +30,13 @@ final class Uploader {
     /// [serial].
     private var notBefore: Date?
 
+    private struct DrainContext {
+        let sessionId: String
+        let url: String
+        let headers: [String: String]
+        let batchSize: Int
+    }
+
     private init() {}
 
     /// Forgets the session: no timer, no backoff, no in-flight bookkeeping.
@@ -170,7 +177,10 @@ final class Uploader {
         // The threshold, not the batch size: `sendNextBatch` still takes
         // `batchSize` points, so a low threshold buys freshness without
         // making a backlog leave one point per round trip.
-        guard force || queue.count() >= self.config.sendAfterPoints else {
+        let sessionId = self.config.sessionId
+        let queuedForSession = queue.count(sessionId: sessionId)
+
+        guard force || queuedForSession >= self.config.sendAfterPoints else {
             // Only while nothing has ever been sent. This is the ordinary
             // state between sweeps and it arrives with every point, so
             // writing it unconditionally would bury the outcome of the
@@ -180,13 +190,20 @@ final class Uploader {
             // alone cannot be told from one that is broken.
             if self.config.lastUpload == "never" {
                 self.config.lastUpload =
-                    "waiting for a sweep — \(queue.count())/\(self.config.sendAfterPoints)"
+                    "waiting for a sweep — \(queuedForSession)/\(self.config.sendAfterPoints)"
             }
             return
         }
 
         self.draining = true
-        self.sendNextBatch()
+        self.sendNextBatch(
+            context: DrainContext(
+                sessionId: sessionId,
+                url: self.config.url,
+                headers: self.config.headers,
+                batchSize: self.config.batchSize
+            )
+        )
     }
 
     private func stopTimerOnSerial() {
@@ -197,15 +214,15 @@ final class Uploader {
         networks = nil
     }
 
-    private func sendNextBatch() {
+    private func sendNextBatch(context: DrainContext) {
         guard let queue else {
             draining = false
             return
         }
 
         let batch = queue.oldest(
-            sessionId: config.sessionId,
-            limit: config.batchSize
+            sessionId: context.sessionId,
+            limit: context.batchSize
         )
 
         guard !batch.isEmpty else {
@@ -214,13 +231,13 @@ final class Uploader {
             return
         }
 
-        guard let url = URL(string: config.url) else {
+        guard let url = URL(string: context.url) else {
             // The one failure with no network in it and no way to notice from
             // outside: the collector goes on filling a queue that can never be
             // posted anywhere. Recorded so the status says so.
-            let reason = config.url.isEmpty
+            let reason = context.url.isEmpty
                 ? "no url — never configured"
-                : "bad url: \(config.url)"
+                : "bad url: \(context.url)"
 
             config.lastUpload = reason
 
@@ -241,7 +258,7 @@ final class Uploader {
             atMillis: Int64(startedAt.timeIntervalSince1970 * 1000),
             level: "info",
             event: "upload.attempt",
-            message: "\(batch.count) points → \(config.url)"
+            message: "\(batch.count) points → \(context.url)"
         )
 
         var request = URLRequest(url: url)
@@ -252,7 +269,7 @@ final class Uploader {
             forHTTPHeaderField: "Content-Type"
         )
 
-        for (name, value) in config.headers {
+        for (name, value) in context.headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
 
@@ -278,7 +295,8 @@ final class Uploader {
                     response: response,
                     error: error,
                     batch: batch,
-                    startedAt: startedAt
+                    startedAt: startedAt,
+                    context: context
                 )
             }
         }.resume()
@@ -289,21 +307,27 @@ final class Uploader {
         response: URLResponse?,
         error: Error?,
         batch: [GeoPointRow],
-        startedAt: Date
+        startedAt: Date,
+        context: DrainContext
     ) {
         let outcome: UploadOutcome
+        let outcomeLabel: String
 
         if let error {
             outcome = .retry
-            config.lastUpload = "network: \(error.localizedDescription)"
+            outcomeLabel = "network: \(error.localizedDescription)"
         } else if let http = response as? HTTPURLResponse {
             outcome = UploadPolicy.classify(http.statusCode)
-            config.lastUpload = outcome == .success
+            outcomeLabel = outcome == .success
                 ? "ok (\(batch.count) points)"
                 : "http \(http.statusCode)"
         } else {
             outcome = .retry
-            config.lastUpload = "no response"
+            outcomeLabel = "no response"
+        }
+
+        if config.sessionId == context.sessionId {
+            config.lastUpload = outcomeLabel
         }
 
         let elapsed = Int(
@@ -327,7 +351,7 @@ final class Uploader {
             atMillis: Int64(Date().timeIntervalSince1970 * 1000),
             level: outcome == .success ? "info" : "warning",
             event: "upload.result",
-            message: "\(config.lastUpload) in \(elapsed)ms \(outcome)\(detail)"
+            message: "\(outcomeLabel) in \(elapsed)ms \(outcome)\(detail)"
         )
 
         switch outcome {
@@ -335,7 +359,7 @@ final class Uploader {
             queue?.drop(ids: batch.map(\.id))
             attempt = 0
             notBefore = nil
-            sendNextBatch()
+            sendNextBatch(context: context)
 
         // Stood down rather than deleted. The blocking this used to prevent is
         // real — the queue is read from the head, so a batch the backend never
@@ -361,10 +385,12 @@ final class Uploader {
 
             attempt = 0
             notBefore = nil
-            sendNextBatch()
+            sendNextBatch(context: context)
 
         case .authFailed:
-            config.authFailed = true
+            if config.sessionId == context.sessionId {
+                config.authFailed = true
+            }
             draining = false
 
             // Nothing to back off from — uploading is halted until fresh
