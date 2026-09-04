@@ -603,7 +603,7 @@ final class GeoTracker: NSObject, CLLocationManagerDelegate {
             }
         }
 
-        let row = GeoPointRow.from(location)
+        let row = GeoPointRow.from(location, sessionId: config.sessionId)
             .movedTo(
                 lat: lat,
                 lon: lon,
