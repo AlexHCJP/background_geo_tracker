@@ -52,6 +52,10 @@ final class PointQueue {
         store.defer(ids: ids, untilMillis: untilMillis)
     }
 
+    func oldest(sessionId: String, limit: Int) -> [GeoPointRow] {
+        store.oldest(sessionId: sessionId, limit: limit)
+    }
+
     func drop(ids: [String]) { store.delete(ids: ids) }
 
     func count() -> Int { store.count() }

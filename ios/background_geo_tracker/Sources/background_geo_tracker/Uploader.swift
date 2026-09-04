@@ -17,6 +17,7 @@ final class Uploader {
     private var draining = false
     private var attempt = 0
     private var timer: DispatchSourceTimer?
+    private var stopAfterDrain = false
 
     /// Wakes the drain the moment a network comes back.
     ///
@@ -57,45 +58,71 @@ final class Uploader {
     /// fresh interval on top — while the app is open and on a network, which
     /// is the best moment it will get — is the wrong way round.
     func startPeriodicDrain() {
-        if timer == nil {
-            // A zero interval would spin the timer flat out; the floor keeps a
-            // bad config from turning into a battery fire.
-            let interval = max(1, config.uploadIntervalSeconds)
-            let timer = DispatchSource.makeTimerSource(queue: serial)
-            timer.schedule(
-                deadline: .now() + .seconds(interval),
-                repeating: .seconds(interval)
-            )
-            timer.setEventHandler { [weak self] in
-                self?.drainIfNeeded(force: true)
-            }
-            timer.resume()
-            self.timer = timer
+        serial.async { [weak self] in
+            guard let self else { return }
 
-            // Same lifetime as the sweep, deliberately: a monitor outliving
-            // the session would wake a drain for a session that is over.
-            let monitor = NWPathMonitor()
-            monitor.pathUpdateHandler = { [weak self] path in
-                guard path.status == .satisfied else { return }
-                GeoLogStore.shared?.write(
-                    atMillis: Int64(Date().timeIntervalSince1970 * 1000),
-                    level: "info",
-                    event: "connectivity.available",
-                    message: "queue depth=\(PointQueue.shared?.count() ?? 0)"
+            self.stopAfterDrain = false
+
+            if self.timer == nil {
+                // A zero interval would spin the timer flat out; the floor keeps
+                // a bad config from turning into a battery fire.
+                let interval = max(1, self.config.uploadIntervalSeconds)
+
+                let timer = DispatchSource.makeTimerSource(queue: self.serial)
+                timer.schedule(
+                    deadline: .now() + .seconds(interval),
+                    repeating: .seconds(interval)
                 )
-                self?.drainIfNeeded(force: true)
+                timer.setEventHandler { [weak self] in
+                    self?.drainIfNeeded(force: true)
+                }
+                timer.resume()
+
+                self.timer = timer
+
+                // Same lifetime as the sweep, deliberately: a monitor outliving
+                // the session would wake a drain for a session that is over.
+                let monitor = NWPathMonitor()
+                monitor.pathUpdateHandler = { [weak self] path in
+                    guard path.status == .satisfied else { return }
+
+                    GeoLogStore.shared?.write(
+                        atMillis: Int64(
+                            Date().timeIntervalSince1970 * 1000
+                        ),
+                        level: "info",
+                        event: "connectivity.available",
+                        message: "queue depth=\(PointQueue.shared?.count() ?? 0)"
+                    )
+
+                    self?.drainIfNeeded(force: true)
+                }
+
+                monitor.start(queue: self.serial)
+                self.networks = monitor
             }
-            monitor.start(queue: serial)
-            networks = monitor
+
+            self.drainIfNeededOnSerial(force: true)
         }
-        drainIfNeeded(force: true)
     }
 
     func stopPeriodicDrain() {
-        timer?.cancel()
-        timer = nil
-        networks?.cancel()
-        networks = nil
+        serial.async { [weak self] in
+            self?.stopTimerOnSerial()
+        }
+    }
+
+    /// Stops periodic work but makes one last attempt to empty the queue. A
+    /// network failure leaves the session-tagged rows safely on disk and does
+    /// not start an endless retry loop after the user ended sharing.
+    func finishAndStop() {
+        serial.async { [weak self] in
+            guard let self else { return }
+
+            self.stopAfterDrain = true
+            self.stopTimerOnSerial()
+            self.drainIfNeededOnSerial(force: true)
+        }
     }
 
     /// `force` bypasses the send threshold — used by the periodic timer so a
@@ -103,50 +130,71 @@ final class Uploader {
     func drainIfNeeded(force: Bool) {
         serial.async { [weak self] in
             guard let self else { return }
-            // Each guard below ends a drain, and each used to end it in
-            // silence. A queue that grows while the collector reports itself
-            // healthy is the symptom of every one of them, so the reason has
-            // to survive the return — see `GeoTrackingStatus.lastUpload`.
-            guard let queue = self.queue else {
-                self.config.lastUpload = "no queue — storage unavailable"
-                return
-            }
-            guard self.config.isConfigured else {
-                self.config.lastUpload = "not configured"
-                return
-            }
-            guard !self.config.authFailed else {
-                self.config.lastUpload = "halted: credentials refused"
-                return
-            }
-            // These two record nothing on purpose: they are the states of a
-            // drain that is working — one in flight, one waiting out a
-            // backoff — and writing them would overwrite the outcome that
-            // caused the wait, which is the part worth reading.
-            guard !self.draining else { return }
-            guard UploadPolicy.mayAttempt(
-                now: Date(), notBefore: self.notBefore
-            ) else { return }
-            // The threshold, not the batch size: `sendNextBatch` still takes
-            // `batchSize` points, so a low threshold buys freshness without
-            // making a backlog leave one point per round trip.
-            guard force || queue.count() >= self.config.sendAfterPoints else {
-                // Only while nothing has ever been sent. This is the ordinary
-                // state between sweeps and it arrives with every point, so
-                // writing it unconditionally would bury the outcome of the
-                // last real attempt under it seconds later — and that outcome
-                // is the whole reason this field exists. It is worth saying
-                // exactly once: on an uploader that has never run, `never`
-                // alone cannot be told from one that is broken.
-                if self.config.lastUpload == "never" {
-                    self.config.lastUpload =
-                        "waiting for a sweep — \(queue.count())/\(self.config.sendAfterPoints)"
-                }
-                return
-            }
-            self.draining = true
-            self.sendNextBatch()
+            self.drainIfNeededOnSerial(force: force)
         }
+    }
+
+    private func drainIfNeededOnSerial(force: Bool) {
+        // Each guard below ends a drain, and each used to end it in
+        // silence. A queue that grows while the collector reports itself
+        // healthy is the symptom of every one of them, so the reason has
+        // to survive the return — see `GeoTrackingStatus.lastUpload`.
+        guard let queue = self.queue else {
+            self.config.lastUpload = "no queue — storage unavailable"
+            return
+        }
+
+        guard self.config.isConfigured else {
+            self.config.lastUpload = "not configured"
+            return
+        }
+
+        guard !self.config.authFailed else {
+            self.config.lastUpload = "halted: credentials refused"
+            return
+        }
+
+        // These two record nothing on purpose: they are the states of a
+        // drain that is working — one in flight, one waiting out a
+        // backoff — and writing them would overwrite the outcome that
+        // caused the wait, which is the part worth reading.
+        guard !self.draining else { return }
+
+        guard UploadPolicy.mayAttempt(
+            now: Date(),
+            notBefore: self.notBefore
+        ) else {
+            return
+        }
+
+        // The threshold, not the batch size: `sendNextBatch` still takes
+        // `batchSize` points, so a low threshold buys freshness without
+        // making a backlog leave one point per round trip.
+        guard force || queue.count() >= self.config.sendAfterPoints else {
+            // Only while nothing has ever been sent. This is the ordinary
+            // state between sweeps and it arrives with every point, so
+            // writing it unconditionally would bury the outcome of the
+            // last real attempt under it seconds later — and that outcome
+            // is the whole reason this field exists. It is worth saying
+            // exactly once: on an uploader that has never run, `never`
+            // alone cannot be told from one that is broken.
+            if self.config.lastUpload == "never" {
+                self.config.lastUpload =
+                    "waiting for a sweep — \(queue.count())/\(self.config.sendAfterPoints)"
+            }
+            return
+        }
+
+        self.draining = true
+        self.sendNextBatch()
+    }
+
+    private func stopTimerOnSerial() {
+        timer?.cancel()
+        timer = nil
+
+        networks?.cancel()
+        networks = nil
     }
 
     private func sendNextBatch() {
@@ -156,9 +204,10 @@ final class Uploader {
         }
 
         let batch = queue.oldest(
-            limit: config.batchSize,
-            nowMillis: Int64(Date().timeIntervalSince1970 * 1000)
+            sessionId: config.sessionId,
+            limit: config.batchSize
         )
+
         guard !batch.isEmpty else {
             draining = false
             attempt = 0
@@ -172,16 +221,22 @@ final class Uploader {
             let reason = config.url.isEmpty
                 ? "no url — never configured"
                 : "bad url: \(config.url)"
+
             config.lastUpload = reason
+
             GeoLogStore.shared?.write(
                 atMillis: Int64(Date().timeIntervalSince1970 * 1000),
-                level: "warning", event: "upload.giveup", message: reason
+                level: "warning",
+                event: "upload.giveup",
+                message: reason
             )
+
             draining = false
             return
         }
 
         let startedAt = Date()
+
         GeoLogStore.shared?.write(
             atMillis: Int64(startedAt.timeIntervalSince1970 * 1000),
             level: "info",
@@ -192,7 +247,11 @@ final class Uploader {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = PointJson.encode(batch)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(
+            "application/json",
+            forHTTPHeaderField: "Content-Type"
+        )
+
         for (name, value) in config.headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
@@ -200,6 +259,7 @@ final class Uploader {
         // Protects an in-flight request from being killed the instant the app
         // is backgrounded.
         var task = UIBackgroundTaskIdentifier.invalid
+
         task = UIApplication.shared.beginBackgroundTask {
             UIApplication.shared.endBackgroundTask(task)
             task = .invalid
@@ -209,11 +269,16 @@ final class Uploader {
             if task != .invalid {
                 UIApplication.shared.endBackgroundTask(task)
             }
+
             guard let self else { return }
+
             self.serial.async {
                 self.handle(
-                    data: data, response: response, error: error,
-                    batch: batch, startedAt: startedAt
+                    data: data,
+                    response: response,
+                    error: error,
+                    batch: batch,
+                    startedAt: startedAt
                 )
             }
         }.resume()
@@ -227,6 +292,7 @@ final class Uploader {
         startedAt: Date
     ) {
         let outcome: UploadOutcome
+
         if let error {
             outcome = .retry
             config.lastUpload = "network: \(error.localizedDescription)"
@@ -240,16 +306,23 @@ final class Uploader {
             config.lastUpload = "no response"
         }
 
-        let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+        let elapsed = Int(
+            Date().timeIntervalSince(startedAt) * 1000
+        )
+
         // Body only on a non-2xx, and truncated: it is what turns "http 422"
         // into "points.bad_coordinates". A 2xx body is noise, and any body at
         // all is data from the server.
         let detail = outcome == .success
             ? ""
             : " " + String(
-                (data.flatMap { String(data: $0, encoding: .utf8) } ?? "")
-                    .prefix(500)
+                (
+                    data.flatMap {
+                        String(data: $0, encoding: .utf8)
+                    } ?? ""
+                ).prefix(500)
             )
+
         GeoLogStore.shared?.write(
             atMillis: Int64(Date().timeIntervalSince1970 * 1000),
             level: outcome == .success ? "info" : "warning",
@@ -269,11 +342,15 @@ final class Uploader {
         // accepts would be re-read forever — but the queue already bounds
         // itself by rows and by age, so nothing has to be thrown away.
         case .deferred:
-            let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+            let nowMillis = Int64(
+                Date().timeIntervalSince1970 * 1000
+            )
+
             queue?.defer(
                 ids: batch.map(\.id),
                 untilMillis: nowMillis + UploadPolicy.deferWindowMillis
             )
+
             GeoLogStore.shared?.write(
                 atMillis: nowMillis,
                 level: "warning",
@@ -281,6 +358,7 @@ final class Uploader {
                 message: "\(batch.count) points stood down for "
                     + "\(UploadPolicy.deferWindowMillis / 60_000)min"
             )
+
             attempt = 0
             notBefore = nil
             sendNextBatch()
@@ -288,16 +366,30 @@ final class Uploader {
         case .authFailed:
             config.authFailed = true
             draining = false
+
             // Nothing to back off from — uploading is halted until fresh
             // credentials arrive, and those clear the flag themselves.
             notBefore = nil
-            GeoEventBus.emitStatus(GeoTracker.shared.statusMap())
+
+            GeoEventBus.emitStatus(
+                GeoTracker.shared.statusMap()
+            )
 
         case .retry:
-            let delay = UploadPolicy.backoffSeconds(attempt: attempt)
+            if stopAfterDrain {
+                draining = false
+                notBefore = nil
+                return
+            }
+
+            let delay = UploadPolicy.backoffSeconds(
+                attempt: attempt
+            )
+
             attempt += 1
             draining = false
             notBefore = Date().addingTimeInterval(delay)
+
             serial.asyncAfter(deadline: .now() + delay) { [weak self] in
                 // This is the attempt the backoff was waiting for, so it lifts
                 // its own gate. Comparing wall-clock `Date` against a deadline

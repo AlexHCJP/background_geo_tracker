@@ -265,7 +265,12 @@ class UploadWorker(
          * would wake up afterwards and drain the queue using credentials the
          * app has already stopped trusting.
          */
-        fun cancel(context: Context) {
+        fun cancelPeriodic(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC)
+        }
+
+        /** Used only for sign-out/reset, where no old work may retain access. */
+        fun cancelAll(context: Context) {
             val manager = WorkManager.getInstance(context)
             manager.cancelUniqueWork(PERIODIC)
             manager.cancelUniqueWork(ONE_SHOT)

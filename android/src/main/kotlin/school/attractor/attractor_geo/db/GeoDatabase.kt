@@ -17,6 +17,7 @@ class GeoDatabase private constructor(context: Context, name: String?) :
             """
             CREATE TABLE $TABLE (
                 id TEXT PRIMARY KEY NOT NULL,
+                session_id TEXT NOT NULL,
                 lat REAL NOT NULL,
                 lon REAL NOT NULL,
                 accuracy REAL NOT NULL,

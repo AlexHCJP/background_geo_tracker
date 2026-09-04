@@ -8,6 +8,7 @@ class GeoPoint {
   /// must not look the same as recording it.
   const GeoPoint({
     required this.id,
+    required this.sessionId,
     required this.latitude,
     required this.longitude,
     required this.accuracy,
@@ -23,6 +24,7 @@ class GeoPoint {
   /// ones the native side sends, which are also the wire format's.
   factory GeoPoint.fromMap(Map<Object?, Object?> map) => GeoPoint(
     id: map['id']! as String,
+    sessionId: map['session_id'] as String? ?? '',
     latitude: _double(map['lat'])!,
     longitude: _double(map['lon'])!,
     accuracy: _double(map['accuracy'])!,
@@ -37,6 +39,10 @@ class GeoPoint {
   /// UUID generated natively, so a retried batch can be de-duplicated by the
   /// backend instead of duplicating the track.
   final String id;
+
+  /// The backend-issued live-sharing session this fix belongs to.
+  /// Empty only for a one-shot read made before the tracker was configured.
+  final String sessionId;
 
   /// Degrees, WGS 84.
   final double latitude;

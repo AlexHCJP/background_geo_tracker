@@ -6,6 +6,7 @@ import UIKit
 /// de-duplicates on the backend instead of doubling the track.
 struct GeoPointRow {
     let id: String
+    let sessionId: String
     let lat: Double
     let lon: Double
     let accuracy: Double
@@ -22,9 +23,12 @@ struct GeoPointRow {
     /// a fix that arrives through `currentPosition` and the same fix arriving
     /// a moment later through the session must not differ in what they say
     /// about altitude, speed or the battery.
-    static func from(_ location: CLLocation) -> GeoPointRow {
+    static func from(
+        _ location: CLLocation, sessionId: String = ""
+    ) -> GeoPointRow {
         GeoPointRow(
             id: UUID().uuidString,
+            sessionId: sessionId,
             lat: location.coordinate.latitude,
             lon: location.coordinate.longitude,
             accuracy: location.horizontalAccuracy,

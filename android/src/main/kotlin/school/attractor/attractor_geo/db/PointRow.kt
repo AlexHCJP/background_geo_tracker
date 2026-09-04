@@ -6,6 +6,7 @@ package school.attractor.attractor_geo.db
  */
 data class PointRow(
     val id: String,
+    val sessionId: String,
     val lat: Double,
     val lon: Double,
     val accuracy: Double,

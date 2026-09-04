@@ -5,6 +5,7 @@ void main() {
   test('fromMap decodes a full point', () {
     final point = GeoPoint.fromMap(const <Object?, Object?>{
       'id': 'b7e4',
+      'session_id': 'consent-42',
       'lat': 55.751244,
       'lon': 37.618423,
       'accuracy': 8.5,
@@ -17,6 +18,7 @@ void main() {
     });
 
     expect(point.id, 'b7e4');
+    expect(point.sessionId, 'consent-42');
     expect(point.latitude, 55.751244);
     expect(point.longitude, 37.618423);
     expect(point.accuracy, 8.5);

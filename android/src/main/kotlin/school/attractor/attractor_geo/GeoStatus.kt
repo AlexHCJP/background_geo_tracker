@@ -28,6 +28,11 @@ object GeoStatus {
         granted(context, Manifest.permission.ACCESS_FINE_LOCATION) ||
             granted(context, Manifest.permission.ACCESS_COARSE_LOCATION)
 
+    fun hasBackgroundLocation(context: Context): Boolean =
+        hasForegroundLocation(context) &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                granted(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+
     /**
      * [activity] is only needed to tell a re-askable denial from a permanent
      * one. Without it — from a worker, say — a denial is reported as the
@@ -135,6 +140,7 @@ object GeoStatus {
         activity: Activity? = null,
     ): Map<String, Any?> = mapOf(
         "is_tracking" to config.isTracking,
+        "collector_running" to GeoTrackingService.isRunning,
         "permission" to permissionName(
             context, activity, config.permissionRequested
         ),

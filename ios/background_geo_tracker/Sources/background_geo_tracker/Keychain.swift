@@ -6,7 +6,8 @@ import Security
 enum Keychain {
     private static let service = "school.attractor.attractor_geo"
 
-    static func set(_ value: String, account: String) {
+    @discardableResult
+    static func set(_ value: String, account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -20,7 +21,7 @@ enum Keychain {
         // while the device is locked — but it must never leave the device.
         insert[kSecAttrAccessible as String] =
             kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(insert as CFDictionary, nil)
+        return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
 
     static func delete(account: String) {

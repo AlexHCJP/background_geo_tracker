@@ -20,6 +20,7 @@ enum PointJson {
         // with a null value when a sensor has nothing to report.
         [
             "id": row.id,
+            "session_id": row.sessionId,
             "lat": row.lat,
             "lon": row.lon,
             "accuracy": row.accuracy,
