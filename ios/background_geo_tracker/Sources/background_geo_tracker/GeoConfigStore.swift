@@ -224,6 +224,32 @@ final class GeoConfigStore {
         set { defaults.set(newValue, forKey: key("last_upload")) }
     }
 
+    /// Whether a URL with this [scheme] and [host] may be used as written.
+    ///
+    /// HTTPS anywhere; plain HTTP only when the host is this device. A LAN
+    /// address is deliberately not loopback — a phone reaching a laptop over
+    /// Wi-Fi puts someone's whereabouts and an upload credential on a shared
+    /// network, which is what the rule exists for.
+    ///
+    /// Literal forms only, never a name lookup: resolving a host here would
+    /// mean a network call inside a validator.
+    private static func isAllowedScheme(_ scheme: String?, host: String) -> Bool {
+        if scheme == "https" { return true }
+        guard scheme == "http" else { return false }
+        if host == "localhost" { return true }
+        // Foundation may hand back a literal IPv6 host with its brackets.
+        var bare = host
+        if bare.hasPrefix("["), bare.hasSuffix("]") {
+            bare = String(bare.dropFirst().dropLast())
+        }
+        if bare == "::1" || bare == "0:0:0:0:0:0:0:1" { return true }
+        let octets = bare.split(separator: ".").compactMap { Int($0) }
+        guard octets.count == 4,
+              octets.allSatisfy({ (0...255).contains($0) })
+        else { return false }
+        return octets[0] == 127
+    }
+
     private func validate(_ value: [String: Any]) throws {
         guard let sessionId = value["session_id"] as? String,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -231,12 +257,13 @@ final class GeoConfigStore {
 
         guard let rawUrl = value["url"] as? String,
               let components = URLComponents(string: rawUrl),
-              components.scheme == "https",
-              !(components.host ?? "").isEmpty,
-              components.fragment == nil
+              let host = components.host, !host.isEmpty,
+              components.fragment == nil,
+              Self.isAllowedScheme(components.scheme, host: host)
         else {
             throw GeoConfigError.invalid(
-                "url must be an absolute HTTPS URL without a fragment"
+                "url must be an absolute HTTPS URL without a fragment "
+                    + "(HTTP is allowed only to localhost)"
             )
         }
         guard let distance = value["distance_filter_meters"] as? Int,

@@ -35,6 +35,34 @@ final class GeoConfigStoreTests: XCTestCase {
         super.tearDown()
     }
 
+    func testPlainHTTPIsAcceptedForALoopbackHost() {
+        // A backend on the developer's own machine, with no certificate to
+        // reach it through.
+        for url in [
+            "http://localhost:8080/points",
+            "http://127.0.0.1:8080/points",
+            "http://[::1]:8080/points",
+        ] {
+            var config = saved
+            config["url"] = url
+            XCTAssertNoThrow(try self.config.save(config), url)
+        }
+    }
+
+    func testPlainHTTPAnywhereElseIsRefused() {
+        // A phone reaching a laptop over Wi-Fi is traffic on a shared
+        // network, carrying whereabouts and a credential to post them with.
+        for url in [
+            "http://192.168.1.10:8080/points",
+            "http://10.0.0.2:8080/points",
+            "http://api.example.com/points",
+        ] {
+            var config = saved
+            config["url"] = url
+            XCTAssertThrowsError(try self.config.save(config), url)
+        }
+    }
+
     func testClearForgetsTheCredentials() {
         try! config.save(saved)
         XCTAssertEqual(config.headers["Authorization"], "Bearer secret")

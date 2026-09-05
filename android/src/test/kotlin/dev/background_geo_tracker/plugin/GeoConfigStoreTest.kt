@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -40,6 +41,35 @@ class GeoConfigStoreTest {
     fun setUp() {
         config = GeoConfigStore(ApplicationProvider.getApplicationContext()) {
             it.getSharedPreferences("test_secure", Context.MODE_PRIVATE)
+        }
+    }
+
+    @Test
+    fun `plain HTTP is accepted for a loopback host`() {
+        // A backend on the developer's own machine, with no certificate to
+        // reach it through.
+        for (url in listOf(
+            "http://localhost:8080/points",
+            "http://127.0.0.1:8080/points",
+            "http://[::1]:8080/points",
+        )) {
+            config.save(saved + mapOf("url" to url))
+            assertEquals(url, config.url)
+        }
+    }
+
+    @Test
+    fun `plain HTTP anywhere else is refused, LAN addresses included`() {
+        // A phone reaching a laptop over Wi-Fi is traffic on a shared
+        // network, carrying whereabouts and a credential to post them with.
+        for (url in listOf(
+            "http://192.168.1.10:8080/points",
+            "http://10.0.0.2:8080/points",
+            "http://api.example.com/points",
+        )) {
+            assertThrows(IllegalArgumentException::class.java) {
+                config.save(saved + mapOf("url" to url))
+            }
         }
     }
 

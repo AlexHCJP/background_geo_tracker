@@ -270,6 +270,32 @@ class GeoConfigStore(
         set(value) =
             prefs.edit().putBoolean("permission_requested", value).apply()
 
+    /**
+     * Whether [endpoint] may be used as it is written.
+     *
+     * HTTPS anywhere; plain HTTP only when the host is this device. A LAN
+     * address is deliberately not loopback — a phone reaching a laptop over
+     * Wi-Fi puts someone's whereabouts and an upload credential on a shared
+     * network, which is what the rule exists for.
+     *
+     * Literal forms only, never a name lookup: this runs on the platform
+     * thread, and `InetAddress.getByName` would resolve over the network from
+     * it.
+     */
+    private fun isAllowedScheme(endpoint: URI): Boolean {
+        if (endpoint.scheme == "https") return true
+        if (endpoint.scheme != "http") return false
+        val host = endpoint.host ?: return false
+        if (host == "localhost") return true
+        // `URI` keeps the brackets around a literal IPv6 host.
+        val bare = host.removeSurrounding("[", "]")
+        if (bare == "::1" || bare == "0:0:0:0:0:0:0:1") return true
+        val octets = bare.split(".").mapNotNull { it.toIntOrNull() }
+        if (octets.size != 4) return false
+        if (octets.any { it < 0 || it > 255 }) return false
+        return octets[0] == 127
+    }
+
     private fun validate(value: Map<String, Any?>) {
         require(value.string("session_id", "").isNotBlank()) {
             "session_id must not be empty"
@@ -278,10 +304,14 @@ class GeoConfigStore(
             URI(value.string("url", "").trim())
         }.getOrNull()
         require(
-            endpoint?.scheme == "https" &&
+            endpoint != null &&
                 !endpoint.host.isNullOrBlank() &&
-                endpoint.rawFragment == null
-        ) { "url must be an absolute HTTPS URL without a fragment" }
+                endpoint.rawFragment == null &&
+                isAllowedScheme(endpoint)
+        ) {
+            "url must be an absolute HTTPS URL without a fragment " +
+                "(HTTP is allowed only to localhost)"
+        }
         require(value.int("distance_filter_meters", -1) >= 0) {
             "distance_filter_meters must be zero or greater"
         }

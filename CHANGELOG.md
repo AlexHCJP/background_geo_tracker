@@ -1,3 +1,14 @@
+## 0.12.2
+
+* **Finish the loopback-HTTP rule in the native config stores.** 0.12.0
+  relaxed it in `GeoUploadConfig` only, so `http://localhost` cleared the Dart
+  check and was then refused by Android's and iOS' own validators — the same
+  URL rejected twice under two different error shapes. Both now apply the rule
+  the Dart side does: HTTPS anywhere, plain HTTP only to a loopback host, LAN
+  addresses still refused. Literal hosts only on both sides, never a name
+  lookup — resolving one inside a validator would mean a network call on the
+  platform thread.
+
 ## 0.12.1
 
 * Ship the `minIntervalSeconds: 0` fix that the 0.12.0 notes described. The
