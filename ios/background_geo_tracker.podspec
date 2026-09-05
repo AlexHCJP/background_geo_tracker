@@ -4,13 +4,13 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'background_geo_tracker'
-  s.version          = '0.11.0'
+  s.version          = '0.12.0'
   s.summary          = 'Native continuous geolocation tracking with upload.'
   s.description      = <<-DESC
 Records a continuous route track and uploads it in batches, without depending
 on a live Dart isolate.
                        DESC
-  s.homepage         = 'https://github.com/tahayildirm/background_geo_tracker'
+  s.homepage         = 'https://github.com/AlexHCJP/background_geo_tracker'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Background Geo Tracker' => 'support@background-geo-tracker.dev' }
   s.source           = { :path => '.' }
