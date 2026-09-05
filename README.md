@@ -1,10 +1,40 @@
 # background_geo_tracker
 
-![Pub Version](https://img.shields.io/pub/v/background_geo_tracker)
-![License](https://img.shields.io/github/license/AlexHCJP/background_geo_tracker)
-![Platform iOS](https://img.shields.io/badge/platform-iOS-lightgrey)
-![Platform Android](https://img.shields.io/badge/platform-Android-lightgrey)
-![Stars](https://img.shields.io/github/stars/AlexHCJP/background_geo_tracker)
+<div align="center">
+  <a href="https://pub.dev/packages/background_geo_tracker">
+    <img src="https://img.shields.io/pub/v/background_geo_tracker?label=Pub&logo=dart" alt="Pub Package" />
+  </a>
+  <a href="https://pub.dev/packages/background_geo_tracker">
+    <img src="https://img.shields.io/pub/likes/background_geo_tracker?style=flat&logo=dart&label=Likes" alt="Pub Likes" />
+  </a>
+  <a href="https://pub.dev/packages/background_geo_tracker/score">
+    <img src="https://img.shields.io/pub/points/background_geo_tracker?label=Score&logo=dart" alt="Pub Score" />
+  </a>
+  <a href="https://pub.dev/packages/background_geo_tracker">
+    <img src="https://img.shields.io/pub/dm/background_geo_tracker?style=flat&color=blue&logo=dart&label=Downloads" alt="Pub Monthly Downloads" />
+  </a>
+  <a href="https://github.com/AlexHCJP/background_geo_tracker">
+    <img src="https://img.shields.io/github/stars/AlexHCJP/background_geo_tracker?style=flat&logo=github&colorB=deeppink&label=Stars" alt="Star on Github" />
+  </a>
+  <a href="https://github.com/AlexHCJP/background_geo_tracker">
+    <img src="https://img.shields.io/github/forks/AlexHCJP/background_geo_tracker?color=orange&label=Forks&logo=github" alt="Forks on Github" />
+  </a>
+  <a href="https://github.com/AlexHCJP/background_geo_tracker/graphs/contributors">
+    <img src="https://img.shields.io/github/contributors/AlexHCJP/background_geo_tracker?style=flat&logo=github&colorB=yellow&label=Contributors" alt="Contributors" />
+  </a>
+  <a href="https://github.com/AlexHCJP/background_geo_tracker/issues">
+    <img src="https://img.shields.io/github/issues/AlexHCJP/background_geo_tracker?label=Issues&logo=github&color=purple" alt="Issues" />
+  </a>
+  <a href="https://github.com/AlexHCJP/background_geo_tracker">
+    <img src="https://img.shields.io/github/languages/code-size/AlexHCJP/background_geo_tracker?logo=github&color=blue&label=Size" alt="Code size" />
+  </a>
+  <a href="https://github.com/AlexHCJP/background_geo_tracker/blob/HEAD/LICENSE">
+    <img src="https://img.shields.io/github/license/AlexHCJP/background_geo_tracker?label=License&color=red&logo=Leanpub" alt="License" />
+  </a>
+  <a href="https://pub.dev/packages/background_geo_tracker">
+    <img src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS-blue.svg?logo=flutter" alt="Platform" />
+  </a>
+</div>
 
 Native continuous route tracking with backend upload. iOS and Android.
 

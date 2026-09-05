@@ -1,6 +1,25 @@
+## 0.12.1
+
+* Ship the `minIntervalSeconds: 0` fix that the 0.12.0 notes described. The
+  Dart-side `_requirePositive` check was never removed in 0.12.0, so zero was
+  still rejected despite both native sides reading it as "no interval floor"
+* Refresh the README badge row
+
 ## 0.12.0
 
-Changelog
+* **Plain HTTP is accepted for a loopback host.** `http://localhost`,
+  `http://127.0.0.1` and `http://[::1]` now pass the URL check, so a backend
+  running on the developer's own machine no longer needs a certificate to be
+  talked to. Everything else still has to be HTTPS — a LAN address included,
+  because a phone reaching a laptop over Wi-Fi is putting someone's
+  whereabouts and an upload credential on a shared network.
+* **`minIntervalSeconds: 0` is accepted again.** Zero means "no interval
+  floor", the same way `distanceFilterMeters: 0` means "no distance floor",
+  and both native sides already read it that way — iOS compares a fix against
+  a zero floor so only an out-of-order one is dropped, Android hands it to
+  `LocationRequest` as "as fast as the platform will provide". The Dart-side
+  check demanded a positive number and was the only thing rejecting it, which
+  left a caller who wanted every fix unable to say so.
 
 
 ## 0.11.0

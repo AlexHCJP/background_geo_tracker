@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:background_geo_tracker/src/geo_filter_config.dart';
 import 'package:background_geo_tracker/src/geo_motion_config.dart';
 import 'package:background_geo_tracker/src/geo_notification_config.dart';
@@ -30,14 +32,21 @@ class GeoUploadConfig {
     }
 
     final endpoint = Uri.tryParse(url.trim());
+    // Plain HTTP is allowed to loopback and nowhere else. Points are a
+    // person's whereabouts and they travel with a credential attached, so on
+    // any network that carries them past this device the transport has to be
+    // encrypted. A backend on the developer's own machine is the one case
+    // where there is no such network — and refusing it only pushed people to
+    // stand up a certificate to run the thing locally.
     if (endpoint == null ||
-        endpoint.scheme != 'https' ||
         endpoint.host.isEmpty ||
-        endpoint.hasFragment) {
+        endpoint.hasFragment ||
+        !_isAllowedScheme(endpoint)) {
       throw ArgumentError.value(
         url,
         'url',
-        'must be an absolute HTTPS URL without a fragment',
+        'must be an absolute HTTPS URL without a fragment '
+            '(HTTP is allowed only to localhost)',
       );
     }
     if (headers.keys.any((name) => name.trim().isEmpty)) {
@@ -50,7 +59,20 @@ class GeoUploadConfig {
         'must be zero or greater',
       );
     }
-    _requirePositive(minIntervalSeconds, 'minIntervalSeconds');
+    // Zero is a setting here, not a mistake: it means "no interval floor",
+    // exactly as `distanceFilterMeters: 0` means "no distance floor". Both
+    // native sides already read it that way — iOS compares a fix against a
+    // zero floor, so only an out-of-order one is dropped; Android hands it to
+    // `LocationRequest` as "as fast as the platform will provide". Demanding a
+    // positive number was the only thing standing in the way, and it left the
+    // two knobs disagreeing about what zero means.
+    if (minIntervalSeconds < 0) {
+      throw ArgumentError.value(
+        minIntervalSeconds,
+        'minIntervalSeconds',
+        'must be zero or greater',
+      );
+    }
     _requirePositive(batchSize, 'batchSize');
     _requirePositive(sendAfterPoints, 'sendAfterPoints');
     _requirePositive(uploadIntervalSeconds, 'uploadIntervalSeconds');
@@ -261,6 +283,21 @@ class GeoUploadConfig {
     ...motion.toMap(),
     ...notification.toMap(),
   };
+}
+
+/// Whether [endpoint] may be used as it is written.
+///
+/// HTTPS anywhere; HTTP only when the host is this device. A LAN address is
+/// deliberately not loopback — a phone talking to a laptop over Wi-Fi is
+/// traffic on a shared network, which is exactly what the rule exists for.
+bool _isAllowedScheme(Uri endpoint) {
+  if (endpoint.scheme == 'https') return true;
+  if (endpoint.scheme != 'http') return false;
+  final host = endpoint.host;
+  // `localhost` resolves to loopback but is not itself an address, so
+  // `InternetAddress` cannot answer for it.
+  if (host == 'localhost') return true;
+  return InternetAddress.tryParse(host)?.isLoopback ?? false;
 }
 
 void _requirePositive(int value, String name) {

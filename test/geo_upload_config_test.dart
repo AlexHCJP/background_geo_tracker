@@ -59,6 +59,80 @@ void main() {
     });
   });
 
+  test('no interval floor is a setting, not an argument error', () {
+    // What a live-position caller asks for: every fix the platform hands over.
+    // This used to throw, which left "no floor" sayable for distance and
+    // unsayable for time.
+    final config = GeoUploadConfig.standard(
+      sessionId: 'consent-42',
+      url: 'https://example.com/points',
+      headers: const <String, String>{},
+      minIntervalSeconds: 0,
+      distanceFilterMeters: 0,
+      notification: GeoNotificationConfig.standard(
+        title: 'Tracking',
+        body: 'Recording your route',
+        channelName: 'Location tracking',
+      ),
+    );
+
+    expect(config.minIntervalSeconds, 0);
+    expect(config.toMap()['min_interval_seconds'], 0);
+  });
+
+  test('a negative interval floor is still refused', () {
+    expect(
+      () => GeoUploadConfig.standard(
+        sessionId: 'consent-42',
+        url: 'https://example.com/points',
+        headers: const <String, String>{},
+        minIntervalSeconds: -1,
+        notification: GeoNotificationConfig.standard(
+          title: 'Tracking',
+          body: 'Recording your route',
+          channelName: 'Location tracking',
+        ),
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  GeoUploadConfig at(String url) => GeoUploadConfig.standard(
+    sessionId: 'consent-42',
+    url: url,
+    headers: const <String, String>{},
+    notification: GeoNotificationConfig.standard(
+      title: 'Tracking',
+      body: 'Recording your route',
+      channelName: 'Location tracking',
+    ),
+  );
+
+  test(
+    'plain HTTP is allowed to loopback, so a local backend needs no cert',
+    () {
+      for (final url in const <String>[
+        'http://localhost:8080/points',
+        'http://127.0.0.1:8080/points',
+        'http://[::1]:8080/points',
+      ]) {
+        expect(at(url).url, isNotEmpty, reason: url);
+      }
+    },
+  );
+
+  test('plain HTTP anywhere else is refused, LAN addresses included', () {
+    // A phone talking to a laptop over Wi-Fi is traffic on a shared network,
+    // carrying someone's whereabouts and a credential to post them with.
+    for (final url in const <String>[
+      'http://192.168.1.10:8080/points',
+      'http://10.0.0.2:8080/points',
+      'http://api.example.com/points',
+    ]) {
+      expect(() => at(url), throwsArgumentError, reason: url);
+    }
+  });
+
   test('the send threshold defaults to the batch size', () {
     // Two jobs used to live in `batchSize`, and the default keeps the old
     // behaviour for anyone who has not thought about the difference.
@@ -112,10 +186,7 @@ void main() {
   test('an unnamed icon travels as an empty string, not as a missing key', () {
     // The native side reads the key and falls back on its own; a key that
     // sometimes exists would make that two code paths instead of one.
-    expect(
-      standard().toMap()['notification_small_icon'],
-      '',
-    );
+    expect(standard().toMap()['notification_small_icon'], '');
   });
 
   test('standard carries the motion defaults onto the wire', () {
